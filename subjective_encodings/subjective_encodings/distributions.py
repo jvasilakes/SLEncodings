@@ -51,10 +51,16 @@ class SLBeta(D.Beta):
         super().__init__(c0, c1)
 
     def __repr__(self):
-        return "SLBeta()"
+        b = self.b.detach()
+        d = self.d.detach()
+        u = self.u.detach()
+        return f"SLBeta({b}, {d}, {u})"
 
     def __str__(self):
-        return "SLBeta()"
+        b = self.b.detach()
+        d = self.d.detach()
+        u = self.u.detach()
+        return f"SLBeta({b}, {d}, {u})"
 
     def parameters(self):
         return {'b': self.b, 'd': self.d, 'u': self.u}
@@ -150,11 +156,10 @@ class SLDirichlet(D.Dirichlet):
 
     def __init__(self, b, u, a=None, W=2):
         b = torch.as_tensor(b)
-        assert b.size(1) > 1
         u = torch.as_tensor(u)
-        assert u.shape == torch.Size([b.size(0), 1])
+        assert u.dim() == b.dim()
         W = torch.as_tensor(W)
-        total = b.sum(dim=1, keepdim=True) + u
+        total = b.sum(dim=-1, keepdim=True) + u
         assert torch.isclose(total, torch.ones_like(total)).all()
 
         self.b = b
@@ -162,7 +167,7 @@ class SLDirichlet(D.Dirichlet):
 
         # If prior not specified, use Uniform
         if a is None:
-            a = torch.zeros_like(b).fill_(1 / self.b.size(1))
+            a = torch.zeros_like(b).fill_(1 / self.b.size(-1))
         self.a = a
         assert self.a.shape == self.b.shape
         self.W = W
@@ -170,10 +175,14 @@ class SLDirichlet(D.Dirichlet):
         super().__init__(alphas)
 
     def __repr__(self):
-        return "SLDirichlet()"
+        b = self.b.detach()
+        u = self.u.detach()
+        return f"SLDirichlet({b}, {u})"
 
     def __str__(self):
-        return "SLDirichlet()"
+        b = self.b.detach()
+        u = self.u.detach()
+        return f"SLDirichlet({b}, {u})"
 
     def parameters(self):
         return {'b': self.b, 'u': self.u}
@@ -193,8 +202,8 @@ class SLDirichlet(D.Dirichlet):
         """
         ps = self.mean
         us = ps / self.a
-        vals, idxs = us.sort(dim=1)
-        new_u = vals[:, 0:1]  # slicing keeps the dims the same
+        vals, idxs = us.sort(dim=-1)
+        new_u, _ = vals.tensor_split([1], dim=-1)
         new_b = ps - self.a * new_u
         return self.__class__(new_b, new_u, a=self.a, W=self.W)
 
@@ -220,32 +229,3 @@ class SLDirichlet(D.Dirichlet):
 
         new_dist = self.__class__(b, u, a=a, W=self.W)
         return new_dist
-
-
-def lnB(a, b):
-    return (torch.lgamma(a) + torch.lgamma(b)) - torch.lgamma(a + b)
-
-
-def beta_cross_entropy(beta1: SLBeta, beta2: SLBeta):
-    """
-    Cross entropy between two beta distributions
-
-    H(X1, X2) = \\int -f(x;a,b) ln(f(x;a',b')) dx
-         = ln(B(a',b')) - (a'-1)\\psi(a) - (b'-1)\\psi(b) + (a'+b'-2)\\psi(a+b)
-    """
-    a1 = beta1.concentration0
-    b1 = beta1.concentration1
-    a2 = beta2.concentration0
-    b2 = beta2.concentration1
-    adigamma = (a2 - 1.) * torch.digamma(a1)
-    bdigamma = (b2 - 1.) * torch.digamma(b1)
-    both_digamma = (a2 + b2 - 2) * torch.digamma(a1 + b1)
-    ce = lnB(a2, b2) - adigamma - bdigamma + both_digamma
-    return ce
-
-
-def dirichlet_cross_entropy(dir1: SLDirichlet, dir2: SLDirichlet):
-    """
-    Cross entropy between two dirichlet distributions
-    """
-    raise NotImplementedError()
