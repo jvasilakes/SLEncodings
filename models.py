@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import torch.distributions as D
 
-from distributions import SLBeta
-from layers import BetaLayer, DirichletLayer
+from sle.distributions import SLBeta
+from sle.layers import BetaLayer, DirichletLayer
 
 
 class LinearNet(nn.Module):
@@ -47,7 +47,15 @@ class LinearNet(nn.Module):
         y = _input['y']
         if y.dim() == 0:
             y = y.unsqueeze(0)
-        return self._loss_fn(output["probs"], y)
+        preds = output["probs"].flatten()
+        return self._loss_fn(preds, y)
+
+    def predict(self, outputs):
+        """
+        outputs = self.forward(_input)
+        """
+        preds = (outputs["probs"] >= self.threshold).int()
+        return preds.flatten()
 
 
 class SLNet(nn.Module):
@@ -66,7 +74,7 @@ class SLNet(nn.Module):
         # TODO: allow use of Dirichlet for multi-label
         self.params = nn.Sequential(
                 nn.Linear(hidden_size, 3),
-                nn.Softmax(dim=0))
+                nn.Softmax(dim=-1))
         self._loss_fn = D.kl_divergence
         self._opt = None
 
@@ -78,8 +86,8 @@ class SLNet(nn.Module):
 
     def forward(self, batch):
         encoded = self.encoder(batch)
-        belief, disbelief, unc = self.params(encoded)
-        beta_dist = SLBeta(belief, disbelief, unc).max_uncertainty()
+        belief, disbelief, unc = self.params(encoded).chunk(3, dim=-1)
+        beta_dist = SLBeta(belief, disbelief, unc)
         return {"distribution": beta_dist}
 
     @property
@@ -89,7 +97,7 @@ class SLNet(nn.Module):
         return self._opt
 
     def compute_loss(self, output, _input):
-        return self._loss_fn(output["distribution"], _input['y'])
+        return self._loss_fn(output["distribution"], _input['y']).sum()
 
 
 class AggregatingSLNet(nn.Module):
@@ -133,5 +141,11 @@ class AggregatingSLNet(nn.Module):
         return self._opt
 
     def compute_loss(self, output, _input):
-        # return self._loss_fn(_input['y'], output["distribution"])
-        return self._loss_fn(output["distribution"], _input['y'])
+        return self._loss_fn(_input['y'], output["distribution"]).mean()
+
+    def predict(self, outputs):
+        """
+        outputs = self.forward(_input)
+        """
+        preds = (outputs["distribution"].mean >= self.threshold).int()
+        return preds.flatten()

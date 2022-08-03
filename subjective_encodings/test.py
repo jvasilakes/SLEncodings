@@ -1,7 +1,7 @@
 import torch
 import torch.distributions as D
 
-import subjective_encodings as sle
+import sle
 
 
 def test_binary_one_example():
@@ -10,7 +10,7 @@ def test_binary_one_example():
     hidden_dim = 5
     label_dim = 2
     x = torch.randn((N, input_dim))
-    y = torch.randint(label_dim, size=(N,1))
+    y = torch.randint(label_dim, size=(N, 1))
     encoded = sle.encode_labels(y, label_dim, collate=True)
     model = torch.nn.Sequential(
             torch.nn.Linear(input_dim, hidden_dim),
@@ -30,7 +30,7 @@ def test_binary_N_examples():
     hidden_dim = 5
     label_dim = 2
     x = torch.randn((N, input_dim))
-    y = torch.randint(label_dim, size=(N,1))
+    y = torch.randint(label_dim, size=(N, 1))
     encoded = sle.encode_labels(y, label_dim, collate=True)
     model = torch.nn.Sequential(
             torch.nn.Linear(input_dim, hidden_dim),
@@ -50,7 +50,7 @@ def test_multiclass_one_example():
     hidden_dim = 5
     label_dim = 3
     x = torch.randn((N, input_dim))
-    y = torch.randint(label_dim, size=(N,1))
+    y = torch.randint(label_dim, size=(N, 1))
     encoded = sle.encode_labels(y, label_dim, collate=True)
     model = torch.nn.Sequential(
             torch.nn.Linear(input_dim, hidden_dim),
@@ -70,7 +70,7 @@ def test_multiclass_N_examples():
     hidden_dim = 5
     label_dim = 3
     x = torch.randn((N, input_dim))
-    y = torch.randint(label_dim, size=(N,1))
+    y = torch.randint(label_dim, size=(N, 1))
     encoded = sle.encode_labels(y, label_dim, collate=True)
     model = torch.nn.Sequential(
             torch.nn.Linear(input_dim, hidden_dim),

@@ -4,8 +4,11 @@ import argparse
 
 import torch
 import numpy as np
-from tqdm import trange
+from tqdm import tqdm
+from sklearn.model_selection import train_test_split
 
+import sle
+from sle import collate
 import data as D
 from models import LinearNet, SLNet, AggregatingSLNet
 
@@ -14,8 +17,9 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--outdir", type=str, required=True,
                         help="Where to save log files.")
-    parser.add_argument("--datapath", type=str, default=None,
-                        help="Path to data file")
+    parser.add_argument("--datadir", type=str, default=None,
+                        help="""Path to directory containing
+                                {train,val,test}.json""")
     parser.add_argument("--label-type", type=str, default="discrete",
                         choices=["discrete", "sl"])
     parser.add_argument("--label-aggregation", type=str, default=None,
@@ -30,6 +34,7 @@ def parse_args():
     parser.add_argument("--hidden-dim", type=int, default=3)
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--lr", type=float, default=0.001)
+    parser.add_argument("--batch-size", type=int, default=5)
     parser.add_argument("--random_seed", type=int, default=0)
     parser.add_argument("--generate-data-only", action="store_true",
                         help="""If set, generate and save data, but
@@ -40,51 +45,138 @@ def parse_args():
 def main(args):
     np.random.seed(0)
     dataclass = get_data_class(args.label_type, args.label_aggregation)
-    if args.datapath is not None:
-        dataset = dataclass.from_file(args.datapath)
+    if args.datadir is not None:
+        train_path = os.path.join(args.datadir, "train.json")
+        train_dataset = dataclass.from_file(train_path)
+        val_path = os.path.join(args.datadir, "val.json")
+        val_dataset = dataclass.from_file(val_path)
+        test_path = os.path.join(args.datadir, "test.json")
+        test_dataset = dataclass.from_file(test_path)
     else:
-        dataset = dataclass(args.n_features, args.n_examples,
-                            annotators=args.n_annotators,
-                            trustworthiness=args.annotator_trustworthiness,
-                            random_seed=args.random_seed)
-    print(dataset)
+        full_dataset = dataclass(
+                args.n_features, args.n_examples,
+                annotators=args.n_annotators,
+                trustworthiness=args.annotator_trustworthiness,
+                random_seed=args.random_seed)
+        train_dataset, val_dataset, test_dataset = split_dataset(full_dataset)
+
     os.makedirs(args.outdir, exist_ok=False)
-    data_outpath = os.path.join(args.outdir, "data.json")
-    dataset.save(data_outpath)
+    train_data_outpath = os.path.join(args.outdir, "train.json")
+    train_dataset.save(train_data_outpath)
+    val_data_outpath = os.path.join(args.outdir, "val.json")
+    val_dataset.save(val_data_outpath)
+    test_data_outpath = os.path.join(args.outdir, "test.json")
+    test_dataset.save(test_data_outpath)
 
     if args.generate_data_only is True:
         return
 
+    collate_fn = None
+    if isinstance(train_dataset[0]['y'], (sle.SLBeta, sle.SLDirichlet)):
+        collate_fn = collate.sle_default_collate
+    train_dataloader = torch.utils.data.DataLoader(
+            train_dataset, batch_size=args.batch_size, shuffle=True,
+            collate_fn=collate_fn)
+    val_dataloader = torch.utils.data.DataLoader(
+            val_dataset, batch_size=args.batch_size, shuffle=False,
+            collate_fn=collate_fn)
+    test_dataloader = torch.utils.data.DataLoader(
+            test_dataset, batch_size=args.batch_size, shuffle=False,
+            collate_fn=collate_fn)
+
     modelclass = get_model_class(args.label_type, args.label_aggregation)
-    model = modelclass(dataset.n_features, args.hidden_dim,
-                       dataset.label_dim, lr=args.lr)
+    model = modelclass(train_dataset.n_features, args.hidden_dim,
+                       train_dataset.label_dim, lr=args.lr)
     print(model)
     model.train()
 
     save_cmdline_args(args, args.outdir)
 
     losses = []
-    for epoch in trange(args.epochs):
-        epoch_losses = []
+    for epoch in range(args.epochs):
         if (epoch+1) % 10 == 0:
-            model.eval()
-            save_model_outputs(model, dataset, epoch=epoch, outdir=args.outdir)
-            model.train()
-        for (n, datum) in enumerate(dataset):
-            output = model(datum["x"])
-            loss = model.compute_loss(output, datum)
-            loss.backward()
-            model.optimizer.step()
-            model.optimizer.zero_grad()
-            epoch_losses.append(loss.item())
+            save_model_outputs(model, train_dataset,
+                               epoch=epoch, outdir=args.outdir)
+            accuracy = run_validate(epoch, model, val_dataloader)
+            print(f"Accuracy: {accuracy:.4f}")
+        epoch_losses = run_train(epoch, model, train_dataloader)
         losses.append(epoch_losses)
 
     model.eval()
-    save_model_outputs(model, dataset, epoch=epoch, outdir=args.outdir)
+    save_model_outputs(model, train_dataset, epoch=epoch, outdir=args.outdir)
 
     losslog = os.path.join(args.outdir, "losses.json")
     with open(losslog, 'w') as outF:
         json.dump(losses, outF)
+
+
+def run_train(epoch, model, dataloader):
+    model.train()
+    losses = []
+    pbar = tqdm(dataloader)
+    for (n, batch) in enumerate(dataloader):
+        output = model(batch["x"])
+        loss = model.compute_loss(output, batch)
+        loss.backward()
+        model.optimizer.step()
+        model.optimizer.zero_grad()
+        losses.append(loss.item())
+        if n % 100 == 0:
+            avg_loss = torch.mean(torch.tensor(losses))
+            pbar.set_description(f"({epoch}) Avg. Train Loss: {avg_loss:.4f}")  # noqa
+        pbar.update()
+    return losses
+
+
+def run_validate(epoch, model, dataloader):
+    model.eval()
+    losses = []
+    all_preds = []
+    all_golds = []
+
+    pbar = tqdm(dataloader)
+    for (n, batch) in enumerate(dataloader):
+        output = model(batch["x"])
+        loss = model.compute_loss(output, batch)
+        losses.append(loss.item())
+        preds = model.predict(output)
+        all_preds.extend(preds)
+        golds = batch["preferred_y"]
+        all_golds.extend(golds)
+
+        if n % 100 == 0:
+            avg_loss = torch.mean(torch.tensor(losses))
+            pbar.set_description(f"(Val {epoch}) Avg. Loss: {avg_loss:.4f}")  # noqa
+        pbar.update()
+
+    all_preds = torch.as_tensor(all_preds)
+    all_golds = torch.as_tensor(all_golds)
+    accuracy = (all_preds == all_golds).sum() / len(all_golds)
+    return accuracy
+
+
+def split_dataset(dataset):
+    example_ids = list(set([ex["example_id"] for ex in dataset]))
+    train_ids, eval_ids = train_test_split(
+            example_ids, train_size=0.8, random_state=0)
+    val_ids, test_ids = train_test_split(
+            eval_ids, test_size=0.5, random_state=0)
+
+    train_idxs = []
+    val_idxs = []
+    test_idxs = []
+    for (i, ex) in enumerate(dataset):
+        if ex["example_id"] in train_ids:
+            train_idxs.append(i)
+        elif ex["example_id"] in val_ids:
+            val_idxs.append(i)
+        elif ex["example_id"] in test_ids:
+            test_idxs.append(i)
+    assert len(train_idxs) + len(val_idxs) + len(test_idxs) == len(dataset)
+    train_ds = dataset.subset(train_idxs)
+    val_ds = dataset.subset(val_idxs)
+    test_ds = dataset.subset(test_idxs)
+    return train_ds, val_ds, test_ds
 
 
 def save_cmdline_args(args, outdir):
@@ -116,7 +208,7 @@ def get_model_class(label_type, label_aggregation):
             ("discrete", "freq"): LinearNet,
             ("discrete", "sample"): LinearNet,
             ("sl", None): AggregatingSLNet,
-            ("sl", "fuse"): SLNet,
+            ("sl", "fuse"): AggregatingSLNet,
             ("sl", "sample"): LinearNet,
             }
     try:
@@ -129,7 +221,9 @@ def save_model_outputs(model, dataset, epoch=None, outdir=None):
     outputs = {}
     model.eval()
     seen = set()
-    for datum in dataset:
+    pbar = tqdm(dataset)
+    pbar.set_description("Saving model outputs...")
+    for datum in pbar:
         datum_cp = dict(datum)
         uuid = datum_cp.pop("uuid")
         if uuid in seen:
@@ -137,11 +231,13 @@ def save_model_outputs(model, dataset, epoch=None, outdir=None):
         seen.add(uuid)
         output = model(datum["x"])
         if "distribution" in output:
-            output = output["distribution"].parameters()
+            output = {k: v.squeeze() for (k, v)
+                      in output["distribution"].parameters().items()}
             datum_cp['y'] = datum_cp['y'].parameters()
         datum_cp["model_output"] = output
         datum_cp = convert_tensors_to_items(datum_cp)
         outputs[uuid] = datum_cp
+        pbar.update()
 
     if outdir is None:
         outdir = '.'

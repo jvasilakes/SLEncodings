@@ -31,7 +31,7 @@ class BetaLayer(nn.Module):
         bprime = (self.bnet(inputs) > torch.tensor(self.threshold)).float()
         belief = bprime * (1. - unc)
         disbelief = 1. - (belief + unc)
-        return SLBeta(belief, disbelief, unc).max_uncertainty()
+        return SLBeta(belief, disbelief, unc)
 
     def forward(self, inputs):
         params = self.params_net(inputs)

@@ -8,7 +8,7 @@ from sklearn.manifold import TSNE
 from sklearn.datasets import make_classification
 from torch.utils.data import Dataset
 
-from distributions import SLBeta
+from sle import SLBeta
 
 
 class Annotator(object):
@@ -76,6 +76,14 @@ class MultiAnnotatorDataset(Dataset):
     def __getitem__(self, idx):
         return self._data[idx]
 
+    def subset(self, idxs):
+        cls = self.__class__
+        return cls(self.n_features, len(idxs),
+                   annotators=self.annotators,
+                   trustworthiness=self.trustworthiness,
+                   random_seed=self.random_seed,
+                   data=[self[i] for i in idxs])
+
     @property
     def label_dim(self):
         # TODO: allow beyond binary
@@ -87,9 +95,10 @@ class MultiAnnotatorDataset(Dataset):
 
     @property
     def examples(self):
-        for i in range(self.n_examples):
-            examples = [ex for ex in self._data if ex["example_id"] == i]
-            yield examples
+        example_ids = sorted(set([ex["example_id"] for ex in self]))
+        for eid in example_ids:
+            group = [ex for ex in self if ex["example_id"] == eid]
+            yield group
 
     def get_annotators(self, n):
         if self.trustworthiness == "perfect":
@@ -115,7 +124,7 @@ class MultiAnnotatorDataset(Dataset):
         np.random.seed(self.random_seed)
         X, y = make_classification(self.n_examples, self.n_features,
                                    n_classes=2, n_clusters_per_class=2,
-                                   class_sep=1.5, flip_y=0.0,
+                                   class_sep=1., flip_y=0.02,
                                    random_state=self.random_seed)
         data = []
         for (i, (x_i, pref_y)) in enumerate(zip(X, y)):
@@ -131,9 +140,9 @@ class MultiAnnotatorDataset(Dataset):
 
     def preprocess_data(self, data):
         for datum in data:
-            datum['x'] = torch.tensor(datum['x'], dtype=torch.float32)
-            datum['y'] = torch.tensor(datum['y'], dtype=torch.float32)
-            datum["preferred_y"] = torch.tensor(
+            datum['x'] = torch.as_tensor(datum['x'], dtype=torch.float32)
+            datum['y'] = torch.as_tensor(datum['y'], dtype=torch.float32)
+            datum["preferred_y"] = torch.as_tensor(
                     datum["preferred_y"], dtype=torch.float32)
         return data
 

@@ -11,7 +11,8 @@ from torch.distributions import kl_divergence
 from sklearn.metrics import precision_recall_fscore_support
 
 from metrics import cross_entropy
-from distributions import SLBeta, beta_cross_entropy
+import sle
+import sle.distributions as dist
 
 
 def parse_args():
@@ -108,12 +109,12 @@ def evaluate_subjective_logic(model_outputs, threshold):
     pred_dists = []
     for example in model_outputs.values():
         preferred_labels.append(int(example["preferred_y"]))
-        y_dist = SLBeta(**example['y'])
+        y_dist = dist.SLBeta(**example['y'])
         label_dists.append(y_dist)
         hard_labels.append(int(y_dist.mean >= 0.5))
         soft_labels.append(y_dist.mean)
 
-        pred_dist = SLBeta(**example["model_output"])
+        pred_dist = dist.SLBeta(**example["model_output"])
         pred_dists.append(pred_dist)
         soft_predictions.append(pred_dist.mean)
         hard_predictions.append(int(pred_dist.mean >= 0.5))
@@ -122,7 +123,7 @@ def evaluate_subjective_logic(model_outputs, threshold):
             preferred_labels, hard_predictions, average=None)
 
     label_ent = np.array([d.entropy() for d in label_dists])
-    ce = np.array([beta_cross_entropy(yd, pd) for (yd, pd)
+    ce = np.array([sle.cross_entropy(yd, pd) for (yd, pd)
                    in zip(label_dists, pred_dists)])
     kldiv = np.array([kl_divergence(yd, pd) for (yd, pd)
                       in zip(label_dists, pred_dists)])

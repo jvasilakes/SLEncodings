@@ -1,14 +1,14 @@
 import torch
 import torch.distributions as D
 
+from .layers import BetaLayer, DirichletLayer  # noqa F401
 from .distributions import SLBeta, SLDirichlet
-from .layers import BetaLayer, DirichletLayer  # noqa
 
 
 EPS = 1e-18
 
 
-def encode_labels(labels, num_labels, collate=False):
+def encode_labels(labels, num_labels):
     labels = torch.as_tensor(labels)
     if labels.dim() == 0:
         raise ValueError(f"Input to encode_labels must be a 1 or 2 dimensional vector.")  # noqa
@@ -21,8 +21,6 @@ def encode_labels(labels, num_labels, collate=False):
         raise ValueError("Multi-label tasks not yet supported.")
 
     encoded = [encode_one(y, num_labels) for y in labels]
-    if collate is True:
-        encoded = collate_sle_labels(encoded)
     return encoded
 
 
@@ -35,19 +33,6 @@ def encode_one(label, num_labels):
         return label2dirichlet(label, num_labels)
     else:
         raise ValueError(f"Unsupported number of unique labels {num_labels}")
-
-
-def collate_sle_labels(encoded):
-    collated_params = {}
-    param_names = encoded[0].parameters().keys()
-    for param_name in param_names:
-        param_vals = [sl_lab.parameters()[param_name]
-                      for sl_lab in encoded]
-        collated = torch.stack(param_vals, dim=0)
-        collated_params[param_name] = collated
-    dist_cls = encoded[0].__class__
-    encoded = dist_cls(**collated_params)
-    return encoded
 
 
 def label2beta(label):
