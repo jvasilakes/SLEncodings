@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 from sklearn.datasets import make_classification
+from sklearn.svm import LinearSVC
 from torch.utils.data import Dataset
 
 from sle import SLBeta
@@ -136,6 +137,34 @@ class MultiAnnotatorDataset(Dataset):
                              "annotator_trustworthiness": annotator.trustworthiness,  # noqa
                              "preferred_y": pref_y,
                              "x": x_i, "y": ann_y})
+
+        data = self.add_uncertainties(data)
+        return data
+
+    def add_uncertainties(self, data):
+        X = np.array([e['x'] for e in data if e["annotator_id"] == 0])
+        y = np.array([e['preferred_y'] for e in data if e["annotator_id"] == 0])  # noqa
+        svc = LinearSVC().fit(X, y)
+        scores = np.abs(svc.decision_function(X))
+        scores = scores / np.max(scores)  # normalize to [0,1]
+
+        score_mean = np.mean(scores)
+        score_sd = np.std(scores)
+        unc_labels_thresholds = [(0.0, "uncertain"),
+                                 (score_mean - score_sd, "somewhat_certain"),
+                                 (score_mean, "certain")]
+        for example in data:
+            score = scores[example["example_id"]]
+            label = None
+            for (t, lab) in unc_labels_thresholds:
+                if score >= t:
+                    label = lab
+            switch_unc_label = np.random.choice([True, False], p=[0.9, 0.1])
+            if switch_unc_label is True:
+                other_labs = [lab for lab in unc_labels_thresholds
+                              if lab != label]
+                label = np.random.choice(other_labs)
+            example["certainty_level"] = label
         return data
 
     def preprocess_data(self, data):
@@ -167,12 +196,31 @@ class MultiAnnotatorDataset(Dataset):
         with open(outpath, 'w') as outF:
             json.dump(outdata, outF)
 
-    def plot(self):
+    def plot(self, savepath=None):
         X = [ex['x'].numpy() for ex in self]
-        Y = [ex['y'].numpy() for ex in self]
+        Y = [ex['y'].item() for ex in self]
         X_emb = TSNE(n_components=2).fit_transform(X)
-        plt.scatter(X_emb[:, 0], X_emb[:, 1], c=Y, alpha=0.3)
-        plt.show()
+
+        plt.figure(figsize=(18, 9))
+        plt.subplot(1, 2, 1)
+        color_map = {1.: "#af8dc3", 0.: "#7fbf7b"}
+        colors = [color_map[y] for y in Y]
+        plt.scatter(X_emb[:, 0], X_emb[:, 1], c=colors, alpha=0.3)
+        plt.xticks([])
+        plt.yticks([])
+
+        plt.subplot(1, 2, 2)
+        color_map = {"certain": "#66c2a5",
+                     "somewhat_certain": "#8da0cb",
+                     "uncertain": "#fc8d62"}
+        colors = [color_map[ex["certainty_level"]] for ex in self]
+        plt.scatter(X_emb[:, 0], X_emb[:, 1], c=colors, alpha=0.3)
+        plt.xticks([])
+        plt.yticks([])
+        if savepath is not None:
+            plt.savefig(savepath, dpi=300)
+        else:
+            plt.show()
 
 
 class VotingAggregatedDataset(MultiAnnotatorDataset):
@@ -189,6 +237,8 @@ class VotingAggregatedDataset(MultiAnnotatorDataset):
                                         for ex in example_group]
             datum_cp["annotator_trustworthiness"] = [ex["annotator_trustworthiness"]  # noqa
                                                      for ex in example_group]
+            datum_cp["certainty_level"] = [ex["certainty_level"]
+                                           for ex in example_group]
             new_data.append(datum_cp)
         return new_data
 
@@ -207,6 +257,8 @@ class FrequencyAggregatedDataset(MultiAnnotatorDataset):
                                         for ex in example_group]
             datum_cp["annotator_trustworthiness"] = [ex["annotator_trustworthiness"]  # noqa
                                                      for ex in example_group]
+            datum_cp["certainty_level"] = [ex["certainty_level"]
+                                           for ex in example_group]
             new_data.append(datum_cp)
         return new_data
 
@@ -227,6 +279,8 @@ class CatSampleAggregatedDataset(MultiAnnotatorDataset):
                                         for ex in example_group]
             datum_cp["annotator_trustworthiness"] = [ex["annotator_trustworthiness"]  # noqa
                                                      for ex in example_group]
+            datum_cp["certainty_level"] = [ex["certainty_level"]
+                                           for ex in example_group]
             new_data.append(datum_cp)
         return new_data
 
@@ -282,12 +336,31 @@ class SubjectiveLogicDataset(MultiAnnotatorDataset):
         with open(outpath, 'w') as outF:
             json.dump(outdata, outF)
 
-    def plot(self):
+    def plot(self, savepath=None):
         X = [ex['x'].numpy() for ex in self]
         Y = [ex['y'].mean for ex in self]
         X_emb = TSNE(n_components=2).fit_transform(X)
-        plt.scatter(X_emb[:, 0], X_emb[:, 1], c=Y, alpha=0.3)
-        plt.show()
+
+        plt.figure(figsize=(18, 9))
+        plt.subplot(1, 2, 1)
+        color_map = {1.: "#af8dc3", 0.: "#7fbf7b"}
+        colors = [color_map[y] for y in Y]
+        plt.scatter(X_emb[:, 0], X_emb[:, 1], c=colors, alpha=0.3)
+        plt.xticks([])
+        plt.yticks([])
+
+        plt.subplot(1, 2, 2)
+        color_map = {"certain": "#66c2a5",
+                     "somewhat_certain": "#8da0cb",
+                     "uncertain": "#fc8d62"}
+        colors = [color_map[ex["certainty_level"]] for ex in self]
+        plt.scatter(X_emb[:, 0], X_emb[:, 1], c=colors, alpha=0.3)
+        plt.xticks([])
+        plt.yticks([])
+        if savepath is not None:
+            plt.savefig(savepath, dpi=300)
+        else:
+            plt.show()
 
 
 class CumulativeFusionDataset(SubjectiveLogicDataset):
@@ -306,6 +379,8 @@ class CumulativeFusionDataset(SubjectiveLogicDataset):
                                         for ex in example_group]
             datum_cp["annotator_trustworthiness"] = [ex["annotator_trustworthiness"]  # noqa
                                                      for ex in example_group]
+            datum_cp["certainty_level"] = [ex["certainty_level"]
+                                           for ex in example_group]
             new_data.append(datum_cp)
         return new_data
 
@@ -327,12 +402,33 @@ class SLSampleAggregatedDataset(SubjectiveLogicDataset):
                                         for ex in example_group]
             datum_cp["annotator_trustworthiness"] = [ex["annotator_trustworthiness"]  # noqa
                                                      for ex in example_group]
+            datum_cp["certainty_level"] = [ex["certainty_level"]
+                                           for ex in example_group]
             new_data.append(datum_cp)
         return new_data
 
-    def plot(self):
+    def plot(self, savepath=None):
         X = [ex['x'].numpy() for ex in self]
-        Y = [ex['y'].numpy() for ex in self]
+        Y = [ex['y'].item() for ex in self]
         X_emb = TSNE(n_components=2).fit_transform(X)
-        plt.scatter(X_emb[:, 0], X_emb[:, 1], c=Y, alpha=0.3)
-        plt.show()
+
+        plt.figure(figsize=(18, 9))
+        plt.subplot(1, 2, 1)
+        color_map = {1.: "#af8dc3", 0.: "#7fbf7b"}
+        colors = [color_map[y] for y in Y]
+        plt.scatter(X_emb[:, 0], X_emb[:, 1], c=colors, alpha=0.3)
+        plt.xticks([])
+        plt.yticks([])
+
+        plt.subplot(1, 2, 2)
+        color_map = {"certain": "#66c2a5",
+                     "somewhat_certain": "#8da0cb",
+                     "uncertain": "#fc8d62"}
+        colors = [color_map[ex["certainty_level"]] for ex in self]
+        plt.scatter(X_emb[:, 0], X_emb[:, 1], c=colors, alpha=0.3)
+        plt.xticks([])
+        plt.yticks([])
+        if savepath is not None:
+            plt.savefig(savepath, dpi=300)
+        else:
+            plt.show()

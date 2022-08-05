@@ -127,6 +127,7 @@ def sle_default_collate(batch):
             except TypeError:
                 # The sequence type may not support `__init__(iterable)` (e.g., `range`).
                 return [sle_default_collate(samples) for samples in transposed]
+    # Added by jvasilakes
     elif isinstance(elem, (SLBeta, SLDirichlet)):
         return collate_sle_labels(batch)
 

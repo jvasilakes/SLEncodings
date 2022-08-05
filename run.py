@@ -63,6 +63,7 @@ def main(args):
     os.makedirs(args.outdir, exist_ok=False)
     train_data_outpath = os.path.join(args.outdir, "train.json")
     train_dataset.save(train_data_outpath)
+    train_dataset.plot(savepath=os.path.join(args.outdir, "train.png"))
     val_data_outpath = os.path.join(args.outdir, "val.json")
     val_dataset.save(val_data_outpath)
     test_data_outpath = os.path.join(args.outdir, "test.json")

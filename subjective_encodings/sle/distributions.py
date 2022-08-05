@@ -128,6 +128,13 @@ class SLBeta(D.Beta):
         new_dist = self.__class__(b, d, u, a=a, W=self.W)
         return new_dist
 
+    def trust_discount(self, trust_level):
+        trust_opinion = SLBeta(trust_level, 1. - trust_level, 0.).max_uncertainty()  # noqa
+        new_b = trust_opinion.mean * self.b
+        new_d = trust_opinion.mean * self.d
+        new_u = 1 - (trust_opinion.mean * (self.b + self.d))
+        return self.__class__(new_b, new_d, new_u)
+
 
 class SLDirichlet(D.Dirichlet):
     """

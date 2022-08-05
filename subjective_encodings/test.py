@@ -2,6 +2,7 @@ import torch
 import torch.distributions as D
 
 import sle
+from sle.collate import collate_sle_labels
 
 
 def test_binary_one_example():
@@ -11,7 +12,8 @@ def test_binary_one_example():
     label_dim = 2
     x = torch.randn((N, input_dim))
     y = torch.randint(label_dim, size=(N, 1))
-    encoded = sle.encode_labels(y, label_dim, collate=True)
+    encoded = sle.encode_labels(y, label_dim)
+    encoded = collate_sle_labels(encoded)
     model = torch.nn.Sequential(
             torch.nn.Linear(input_dim, hidden_dim),
             torch.nn.Tanh(),
@@ -31,7 +33,8 @@ def test_binary_N_examples():
     label_dim = 2
     x = torch.randn((N, input_dim))
     y = torch.randint(label_dim, size=(N, 1))
-    encoded = sle.encode_labels(y, label_dim, collate=True)
+    encoded = sle.encode_labels(y, label_dim)
+    encoded = collate_sle_labels(encoded)
     model = torch.nn.Sequential(
             torch.nn.Linear(input_dim, hidden_dim),
             torch.nn.Tanh(),
@@ -51,7 +54,8 @@ def test_multiclass_one_example():
     label_dim = 3
     x = torch.randn((N, input_dim))
     y = torch.randint(label_dim, size=(N, 1))
-    encoded = sle.encode_labels(y, label_dim, collate=True)
+    encoded = sle.encode_labels(y, label_dim)
+    encoded = collate_sle_labels(encoded)
     model = torch.nn.Sequential(
             torch.nn.Linear(input_dim, hidden_dim),
             torch.nn.Tanh(),
@@ -71,7 +75,8 @@ def test_multiclass_N_examples():
     label_dim = 3
     x = torch.randn((N, input_dim))
     y = torch.randint(label_dim, size=(N, 1))
-    encoded = sle.encode_labels(y, label_dim, collate=True)
+    encoded = sle.encode_labels(y, label_dim)
+    encoded = collate_sle_labels(encoded)
     model = torch.nn.Sequential(
             torch.nn.Linear(input_dim, hidden_dim),
             torch.nn.Tanh(),
