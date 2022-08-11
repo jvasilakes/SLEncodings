@@ -26,13 +26,6 @@ class BetaLayer(nn.Module):
     def __str__(self):
         return f"BetaLayer({self.insize})"
 
-    def old_forward(self, inputs):
-        unc = self.unet(inputs)
-        bprime = (self.bnet(inputs) > torch.tensor(self.threshold)).float()
-        belief = bprime * (1. - unc)
-        disbelief = 1. - (belief + unc)
-        return SLBeta(belief, disbelief, unc)
-
     def forward(self, inputs):
         params = self.params_net(inputs)
         beliefs, disbeliefs, uncs = params.chunk(3, dim=-1)

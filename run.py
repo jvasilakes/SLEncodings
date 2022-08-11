@@ -10,7 +10,7 @@ from sklearn.model_selection import train_test_split
 import sle
 from sle import collate
 import data as D
-from models import LinearNet, SLNet, AggregatingSLNet
+from models import LinearNet, SLNet
 
 
 def parse_args():
@@ -35,6 +35,8 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--batch-size", type=int, default=5)
+    parser.add_argument("--n-train", type=int, default=-1,
+                        help="Number of training examples to load.""")
     parser.add_argument("--random_seed", type=int, default=0)
     parser.add_argument("--generate-data-only", action="store_true",
                         help="""If set, generate and save data, but
@@ -45,9 +47,10 @@ def parse_args():
 def main(args):
     np.random.seed(0)
     dataclass = get_data_class(args.label_type, args.label_aggregation)
+    os.makedirs(args.outdir, exist_ok=False)
     if args.datadir is not None:
         train_path = os.path.join(args.datadir, "train.json")
-        train_dataset = dataclass.from_file(train_path)
+        train_dataset = dataclass.from_file(train_path, n=args.n_train)
         val_path = os.path.join(args.datadir, "val.json")
         val_dataset = dataclass.from_file(val_path)
         test_path = os.path.join(args.datadir, "test.json")
@@ -60,14 +63,13 @@ def main(args):
                 random_seed=args.random_seed)
         train_dataset, val_dataset, test_dataset = split_dataset(full_dataset)
 
-    os.makedirs(args.outdir, exist_ok=False)
-    train_data_outpath = os.path.join(args.outdir, "train.json")
-    train_dataset.save(train_data_outpath)
-    train_dataset.plot(savepath=os.path.join(args.outdir, "train.png"))
-    val_data_outpath = os.path.join(args.outdir, "val.json")
-    val_dataset.save(val_data_outpath)
-    test_data_outpath = os.path.join(args.outdir, "test.json")
-    test_dataset.save(test_data_outpath)
+        train_data_outpath = os.path.join(args.outdir, "train.json")
+        train_dataset.save(train_data_outpath)
+        train_dataset.plot(savepath=os.path.join(args.outdir, "train.png"))
+        val_data_outpath = os.path.join(args.outdir, "val.json")
+        val_dataset.save(val_data_outpath)
+        test_data_outpath = os.path.join(args.outdir, "test.json")
+        test_dataset.save(test_data_outpath)
 
     if args.generate_data_only is True:
         return
@@ -208,8 +210,8 @@ def get_model_class(label_type, label_aggregation):
             ("discrete", "vote"): LinearNet,
             ("discrete", "freq"): LinearNet,
             ("discrete", "sample"): LinearNet,
-            ("sl", None): AggregatingSLNet,
-            ("sl", "fuse"): AggregatingSLNet,
+            ("sl", None): SLNet,
+            ("sl", "fuse"): SLNet,
             ("sl", "sample"): LinearNet,
             }
     try:

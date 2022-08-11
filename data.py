@@ -39,9 +39,12 @@ class MultiAnnotatorDataset(Dataset):
     """
 
     @classmethod
-    def from_file(cls, datapath):
+    def from_file(cls, datapath, n=-1):
         data = json.load(open(datapath))
-        return cls(**data["metadata"], data=data["examples"])
+        examples = data["examples"]
+        if n > 0:
+            examples = examples[:n]
+        return cls(**data["metadata"], data=examples)
 
     def __init__(self, n_features, n_examples, annotators=10,
                  trustworthiness="perfect", random_seed=0, data=None):
@@ -288,9 +291,12 @@ class CatSampleAggregatedDataset(MultiAnnotatorDataset):
 class SubjectiveLogicDataset(MultiAnnotatorDataset):
 
     @classmethod
-    def from_file(cls, datapath):
+    def from_file(cls, datapath, n=-1):
         data = json.load(open(datapath))
-        return cls(**data["metadata"], data=data["examples"])
+        examples = data["examples"]
+        if n > 0:
+            examples = examples[:n]
+        return cls(**data["metadata"], data=examples)
 
     @staticmethod
     def label2beta(label):

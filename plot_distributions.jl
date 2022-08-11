@@ -3,6 +3,7 @@ using ArgParse
 using Glob
 using Distributions
 using StatsPlots
+using Colors
 
 
 function parse_cmdline()
@@ -30,7 +31,7 @@ function slbeta(b, d, u)
 end
 
 
-function plot_example(indir, example_id; legend=:topright)
+function plot_example(indir, example_id; legend=:top)
     outputs_by_epoch = Dict()
     for fpath in glob("outputs*.json", indir)
         data = JSON.parsefile(fpath)
@@ -41,8 +42,12 @@ function plot_example(indir, example_id; legend=:topright)
 
     # sort by epoch
     sorted_outputs = sort(collect(outputs_by_epoch), by=x->x[1])
+    start = RGB(([239,139,99]./255)...)
+    stop = RGB(([110,173,209]./255)...)
+    colormap = range(start, stop=stop, length=length(sorted_outputs))
     initialized_plot = false
-    plt = plot()
+    plt = plot(size=(1000, 500))
+    i = 1
     for (epoch, output) in sorted_outputs
         example = [e for e in values(output)
                    if e["example_id"] == example_id][1]
@@ -52,7 +57,7 @@ function plot_example(indir, example_id; legend=:topright)
             d = example["y"]["d"]
             u = example["y"]["u"]
             dist = slbeta(b, d, u)
-            plot!(dist, label='y', lw=3, legend=legend)
+            plot!(dist, label='y', lw=3, legend=nothing, c=colormap[end], size=(1000,500))
             initialized_plot = true
         end
 
@@ -60,14 +65,15 @@ function plot_example(indir, example_id; legend=:topright)
         d = example["model_output"]["d"]
         u = example["model_output"]["u"]
         dist = slbeta(b, d, u)
-        plot!(dist, label=epoch, legend=legend)
+        plot!(dist, label=epoch, lwd=2, legend=nothing, c=colormap[i], size=(1000,500))
+        i += 1
     end
     display(plt)
 end
 
 function main()
     @show parsed_args = parse_cmdline()
-    plot_example(parsed_args["indir"], parsed_args["example_id"])
+    plot_example(parsed_args["indir"], parsed_args["example-id"])
     gui()
     readline()
 end

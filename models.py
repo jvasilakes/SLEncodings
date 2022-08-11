@@ -58,7 +58,7 @@ class LinearNet(nn.Module):
         return preds.flatten()
 
 
-class SLNet(nn.Module):
+class OLDSLNet(nn.Module):
 
     def __init__(self, input_size, hidden_size, output_size, lr=0.001):
         super().__init__()
@@ -100,7 +100,7 @@ class SLNet(nn.Module):
         return self._loss_fn(output["distribution"], _input['y']).sum()
 
 
-class AggregatingSLNet(nn.Module):
+class SLNet(nn.Module):
 
     def __init__(self, input_size, hidden_size, output_size, lr=0.001):
         super().__init__()
