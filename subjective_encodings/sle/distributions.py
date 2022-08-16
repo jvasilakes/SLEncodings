@@ -129,11 +129,14 @@ class SLBeta(D.Beta):
         return new_dist
 
     def trust_discount(self, trust_level):
+        if trust_level < 0. or trust_level > 1.:
+            raise ValueError(f"trust_level must be in [0,1]. Got {trust_level}")  # noqa
+
         trust_opinion = SLBeta(trust_level, 1. - trust_level, 0.).max_uncertainty()  # noqa
         new_b = trust_opinion.mean * self.b
         new_d = trust_opinion.mean * self.d
         new_u = 1 - (trust_opinion.mean * (self.b + self.d))
-        return self.__class__(new_b, new_d, new_u)
+        return self.__class__(new_b, new_d, new_u, a=self.a, W=self.W)
 
 
 class SLDirichlet(D.Dirichlet):
@@ -236,3 +239,12 @@ class SLDirichlet(D.Dirichlet):
 
         new_dist = self.__class__(b, u, a=a, W=self.W)
         return new_dist
+
+    def trust_discount(self, trust_level):
+        if trust_level < 0. or trust_level > 1.:
+            raise ValueError(f"trust_level must be in [0,1]. Got {trust_level}")  # noqa
+
+        trust_opinion = SLBeta(trust_level, 1. - trust_level, 0.).max_uncertainty()  # noqa
+        new_b = trust_opinion.mean * self.b
+        new_u = 1 - (trust_opinion.mean * (self.b.sum()))
+        return self.__class__(new_b, new_u, a=self.a, W=self.W)
