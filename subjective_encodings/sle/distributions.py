@@ -1,14 +1,14 @@
 import torch
 import torch.distributions as D
 
+import sle.plotting as plotting
+
 
 EPS = 1e-18
 
 
 class SLBeta(D.Beta):
     """
-    SLBeta(b, d, u, a=0.5, W=2)
-
     Beta distribution reparameterized to used belief, disbelief,
     and uncertainty parameters in accordance with Subjective Logic.
 
@@ -32,13 +32,16 @@ class SLBeta(D.Beta):
     See help(torch.distribution.Beta) for more information.
     """
 
-    def __init__(self, b, d, u, a=0.5, W=2):
+    def __init__(self, b, d, u, a=None, W=2):
         # First, convert to tensors
         b = torch.as_tensor(b)
         d = torch.as_tensor(d)
         u = torch.as_tensor(u)
-        a = torch.as_tensor(a)
         W = torch.as_tensor(W)
+        # If prior not specified, use Uniform
+        if a is None:
+            a = 0.5
+        a = torch.as_tensor(a)
 
         total = b + d + u
         assert torch.isclose(total, torch.ones_like(total)).all()
@@ -54,13 +57,13 @@ class SLBeta(D.Beta):
         b = self.b.detach()
         d = self.d.detach()
         u = self.u.detach()
-        return f"SLBeta({b}, {d}, {u})"
+        return f"SLBeta({b:.3f}, {d:.3f}, {u:.3f})"
 
     def __str__(self):
         b = self.b.detach()
         d = self.d.detach()
         u = self.u.detach()
-        return f"SLBeta({b}, {d}, {u})"
+        return f"SLBeta({b:.3f}, {d:.3f}, {u:.3f})"
 
     def parameters(self):
         return {'b': self.b, 'd': self.d, 'u': self.u}
@@ -105,7 +108,7 @@ class SLBeta(D.Beta):
 
     def cumulative_fusion(self, other):
         """
-        Aleatory Cumulative fusion operator. See SLT Book 12.3
+        Aleatory Cumulative fusion operator. See SLT Book section 12.3.
         For Epistemic Cumulative fusion do
 
         Beta1.cumulative_fusion(Beta2).max_uncertainty()
@@ -128,21 +131,30 @@ class SLBeta(D.Beta):
         new_dist = self.__class__(b, d, u, a=a, W=self.W)
         return new_dist
 
-    def trust_discount(self, trust_level):
-        if trust_level < 0. or trust_level > 1.:
-            raise ValueError(f"trust_level must be in [0,1]. Got {trust_level}")  # noqa
+    def trust_discount(self, trust_level=None, trust_opinion=None):
+        """
+        Trust discounting operator. See SLT Book section 14.3.2.
+        """
+        if trust_level is not None:
+            if trust_level < 0. or trust_level > 1.:
+                raise ValueError(f"trust_level must be in [0,1]. Got {trust_level}")  # noqa
+            trust_opinion = SLBeta(trust_level, 1. - trust_level, 0.).max_uncertainty()  # noqa
 
-        trust_opinion = SLBeta(trust_level, 1. - trust_level, 0.).max_uncertainty()  # noqa
+        elif trust_opinion is not None:
+            if not isinstance(trust_opinion, SLBeta):
+                raise ValueError(f"trust_opinion argument must be of type SLBeta. Got {type(trust_opinion)}.")  # noqa
+
         new_b = trust_opinion.mean * self.b
         new_d = trust_opinion.mean * self.d
         new_u = 1 - (trust_opinion.mean * (self.b + self.d))
         return self.__class__(new_b, new_d, new_u, a=self.a, W=self.W)
 
+    def plot(self):
+        plotting.plot_beta(self, title=str(self)).show()
+
 
 class SLDirichlet(D.Dirichlet):
     """
-    SLDirichlet(b, u, a=None, W=2)
-
     Dirichlet distribution reparameterized to used belief and uncertainty
     parameters in accordance with Subjective Logic.
 
@@ -186,13 +198,15 @@ class SLDirichlet(D.Dirichlet):
 
     def __repr__(self):
         b = self.b.detach()
-        u = self.u.detach()
-        return f"SLDirichlet({b}, {u})"
+        b_str = '[' + ', '.join(f"{bi:.3f}" for bi in b) + ']'
+        u = self.u.detach()[0].item()
+        return f"SLDirichlet({b_str}, {u:.3f})"
 
     def __str__(self):
         b = self.b.detach()
-        u = self.u.detach()
-        return f"SLDirichlet({b}, {u})"
+        b_str = '[' + ', '.join(f"{bi:.3f}" for bi in b) + ']'
+        u = self.u.detach()[0].item()
+        return f"SLDirichlet({b_str}, {u:.3f})"
 
     def parameters(self):
         return {'b': self.b, 'u': self.u}
@@ -240,11 +254,19 @@ class SLDirichlet(D.Dirichlet):
         new_dist = self.__class__(b, u, a=a, W=self.W)
         return new_dist
 
-    def trust_discount(self, trust_level):
-        if trust_level < 0. or trust_level > 1.:
-            raise ValueError(f"trust_level must be in [0,1]. Got {trust_level}")  # noqa
+    def trust_discount(self, trust_level=None, trust_opinion=None):
+        if trust_level is not None:
+            if trust_level < 0. or trust_level > 1.:
+                raise ValueError(f"trust_level must be in [0,1]. Got {trust_level}")  # noqa
+            trust_opinion = SLBeta(trust_level, 1. - trust_level, 0.).max_uncertainty()  # noqa
 
-        trust_opinion = SLBeta(trust_level, 1. - trust_level, 0.).max_uncertainty()  # noqa
+        elif trust_opinion is not None:
+            if not isinstance(trust_opinion, SLBeta):
+                raise ValueError(f"trust_opinion argument must be of type SLBeta. Got {type(trust_opinion)}.")  # noqa
+
         new_b = trust_opinion.mean * self.b
         new_u = 1 - (trust_opinion.mean * (self.b.sum()))
         return self.__class__(new_b, new_u, a=self.a, W=self.W)
+
+    def plot(self):
+        plotting.plot_dirichlet(self, title=str(self)).show()

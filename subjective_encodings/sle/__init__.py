@@ -5,10 +5,11 @@ from .layers import BetaLayer, DirichletLayer  # noqa F401
 from .distributions import SLBeta, SLDirichlet
 
 
-EPS = 1e-18
+# Smoothing one-hot labels so KL-divergence is non-zero.
+EPS = 1e-6
 
 
-def encode_labels(labels, num_labels):
+def encode_labels(labels, num_labels, uncertainties=None, priors=None):
     labels = torch.as_tensor(labels)
     if labels.dim() == 0:
         raise ValueError(f"Input to encode_labels must be a 1 or 2 dimensional vector.")  # noqa
@@ -20,43 +21,52 @@ def encode_labels(labels, num_labels):
     if labels.size(1) > 1:
         raise ValueError("Multi-label tasks not yet supported.")
 
-    encoded = [encode_one(y, num_labels) for y in labels]
+    if uncertainties is None:
+        uncertainties = [None] * len(labels)
+    if priors is None:
+        priors = [None] * len(labels)
+    encoded = [encode_one(y, num_labels, u, a)
+               for (y, u, a) in zip(labels, uncertainties, priors)]
     return encoded
 
 
-def encode_one(label, num_labels):
+def encode_one(label, num_labels, u=0, a=None):
     # Binary
     if num_labels in [1, 2]:
-        return label2beta(label)
+        return label2beta(label, u=u, a=a)
     # Multi-class
     elif num_labels > 2:
-        return label2dirichlet(label, num_labels)
+        return label2dirichlet(label, num_labels, u=u, a=a)
     else:
         raise ValueError(f"Unsupported number of unique labels {num_labels}")
 
 
-def label2beta(label):
+def label2beta(label, u=0, a=None):
     if label not in [0, 1]:
         raise ValueError("Only binary {0,1} values are supported")
 
-    u = torch.tensor(0. + EPS)
+    u = torch.as_tensor(u, dtype=torch.float32)
+    if u == 0:
+        u += EPS
     if label == 1:
-        b = torch.tensor(1. - EPS)
+        b = 1. - u
         d = torch.tensor(0.)
     else:
         b = torch.tensor(0.)
-        d = torch.tensor(1. - EPS)
-    return SLBeta(b, d, u)
+        d = 1. - u
+    return SLBeta(b, d, u, a)
 
 
-def label2dirichlet(label, num_labels):
+def label2dirichlet(label, num_labels, u=0, a=None):
     if label not in range(num_labels):
         raise ValueError(f"label {label} not in {num_labels}")
 
+    u = torch.as_tensor([u], dtype=torch.float32)
+    if u == 0:
+        u += EPS
     beliefs = torch.zeros(num_labels)
-    beliefs[label] = torch.tensor(1. - EPS)
-    unc = torch.tensor([0. + EPS])
-    return SLDirichlet(beliefs, unc)
+    beliefs[label] = 1. - u
+    return SLDirichlet(beliefs, u, a)
 
 
 def cross_entropy(dist1: D.Distribution, dist2: D.Distribution):
