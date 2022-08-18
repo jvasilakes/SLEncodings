@@ -5,7 +5,6 @@ import argparse
 import torch
 import numpy as np
 from tqdm import tqdm
-from sklearn.model_selection import train_test_split
 
 import sle
 from sle import collate
@@ -24,13 +23,6 @@ def parse_args():
                         choices=["discrete", "sl"])
     parser.add_argument("--label-aggregation", type=str, default=None,
                         choices=["fuse", "vote", "freq", "sample"])
-    parser.add_argument("--n-features", type=int, default=5)
-    parser.add_argument("--n-examples", type=int, default=10)
-    parser.add_argument("--n-annotators", type=int, default=3)
-    parser.add_argument('-T', "--annotator-trustworthiness", type=str,
-                        choices=["perfect", "high", "high-outlier", "medium",
-                                 "low", "low-outlier"], default="high",
-                        help="Distribution of annotator trustworthiness.")
     parser.add_argument("--hidden-dim", type=int, default=3)
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--lr", type=float, default=0.001)
@@ -47,33 +39,14 @@ def parse_args():
 def main(args):
     np.random.seed(0)
     dataclass = get_data_class(args.label_type, args.label_aggregation)
+    train_path = os.path.join(args.datadir, "train.json")
+    train_dataset = dataclass.from_file(train_path, n=args.n_train)
+    val_path = os.path.join(args.datadir, "val.json")
+    val_dataset = dataclass.from_file(val_path)
+    test_path = os.path.join(args.datadir, "test.json")
+    test_dataset = dataclass.from_file(test_path)
+
     os.makedirs(args.outdir, exist_ok=False)
-    if args.datadir is not None:
-        train_path = os.path.join(args.datadir, "train.json")
-        train_dataset = dataclass.from_file(train_path, n=args.n_train)
-        val_path = os.path.join(args.datadir, "val.json")
-        val_dataset = dataclass.from_file(val_path)
-        test_path = os.path.join(args.datadir, "test.json")
-        test_dataset = dataclass.from_file(test_path)
-    else:
-        full_dataset = dataclass(
-                args.n_features, args.n_examples,
-                annotators=args.n_annotators,
-                trustworthiness=args.annotator_trustworthiness,
-                random_seed=args.random_seed)
-        train_dataset, val_dataset, test_dataset = split_dataset(full_dataset)
-
-        train_data_outpath = os.path.join(args.outdir, "train.json")
-        train_dataset.save(train_data_outpath)
-        train_dataset.plot(savepath=os.path.join(args.outdir, "train.png"))
-        val_data_outpath = os.path.join(args.outdir, "val.json")
-        val_dataset.save(val_data_outpath)
-        test_data_outpath = os.path.join(args.outdir, "test.json")
-        test_dataset.save(test_data_outpath)
-
-    if args.generate_data_only is True:
-        return
-
     collate_fn = None
     if isinstance(train_dataset[0]['y'], (sle.SLBeta, sle.SLDirichlet)):
         collate_fn = collate.sle_default_collate
@@ -156,30 +129,6 @@ def run_validate(epoch, model, dataloader):
     all_golds = torch.as_tensor(all_golds)
     accuracy = (all_preds == all_golds).sum() / len(all_golds)
     return accuracy
-
-
-def split_dataset(dataset):
-    example_ids = list(set([ex["example_id"] for ex in dataset]))
-    train_ids, eval_ids = train_test_split(
-            example_ids, train_size=0.8, random_state=0)
-    val_ids, test_ids = train_test_split(
-            eval_ids, test_size=0.5, random_state=0)
-
-    train_idxs = []
-    val_idxs = []
-    test_idxs = []
-    for (i, ex) in enumerate(dataset):
-        if ex["example_id"] in train_ids:
-            train_idxs.append(i)
-        elif ex["example_id"] in val_ids:
-            val_idxs.append(i)
-        elif ex["example_id"] in test_ids:
-            test_idxs.append(i)
-    assert len(train_idxs) + len(val_idxs) + len(test_idxs) == len(dataset)
-    train_ds = dataset.subset(train_idxs)
-    val_ds = dataset.subset(val_idxs)
-    test_ds = dataset.subset(test_idxs)
-    return train_ds, val_ds, test_ds
 
 
 def save_cmdline_args(args, outdir):

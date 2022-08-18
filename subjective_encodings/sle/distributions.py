@@ -1,10 +1,9 @@
 import torch
 import torch.distributions as D
 
+import sle
 import sle.plotting as plotting
 
-
-EPS = 1e-18
 
 
 class SLBeta(D.Beta):
@@ -47,7 +46,7 @@ class SLBeta(D.Beta):
         assert torch.isclose(total, torch.ones_like(total)).all()
         self.b = b
         self.d = d
-        self.u = torch.where(u == 0., torch.tensor(EPS), u)
+        self.u = torch.where(u == 0., torch.tensor(sle.EPS), u)
         self.a = a
         self.W = W
         c0, c1 = self.reparameterize()
@@ -185,7 +184,7 @@ class SLDirichlet(D.Dirichlet):
         assert torch.isclose(total, torch.ones_like(total)).all()
 
         self.b = b
-        self.u = torch.where(u == 0., torch.tensor(EPS), u)
+        self.u = torch.where(u == 0., torch.tensor(sle.EPS), u)
 
         # If prior not specified, use Uniform
         if a is None:

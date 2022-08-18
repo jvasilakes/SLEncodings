@@ -23,7 +23,7 @@ def test_binary_one_example():
     print("y:\t ", y.shape)
     print("encoded:\t ", encoded.b.shape)
     print("outputs:\t", outputs.b.shape)
-    print("loss:\t", loss.shape)
+    print("KL:\t", loss.shape)
 
 
 def test_binary_N_examples():
@@ -44,7 +44,7 @@ def test_binary_N_examples():
     print("y:\t ", y.shape)
     print("encoded:\t ", encoded.b.shape)
     print("outputs:\t", outputs.b.shape)
-    print("loss:\t", loss.shape)
+    print("KL:\t", loss.shape)
 
 
 def test_multiclass_one_example():
@@ -65,7 +65,7 @@ def test_multiclass_one_example():
     print("y:\t ", y.shape)
     print("encoded:\t ", encoded.b.shape)
     print("outputs:\t", outputs.b.shape)
-    print("loss:\t", loss.shape)
+    print("KL:\t", loss.shape)
 
 
 def test_multiclass_N_examples():
@@ -86,7 +86,7 @@ def test_multiclass_N_examples():
     print("y:\t ", y.shape)
     print("encoded:\t ", encoded.b.shape)
     print("outputs:\t", outputs.b.shape)
-    print("loss:\t", loss.shape)
+    print("KL:\t", loss.shape)
 
 
 if __name__ == "__main__":

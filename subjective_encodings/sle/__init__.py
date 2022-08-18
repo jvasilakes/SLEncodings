@@ -22,7 +22,7 @@ def encode_labels(labels, num_labels, uncertainties=None, priors=None):
         raise ValueError("Multi-label tasks not yet supported.")
 
     if uncertainties is None:
-        uncertainties = [None] * len(labels)
+        uncertainties = [0.] * len(labels)
     if priors is None:
         priors = [None] * len(labels)
     encoded = [encode_one(y, num_labels, u, a)

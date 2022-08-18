@@ -4,28 +4,53 @@ from hashlib import md5
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
 from sklearn.manifold import TSNE
 from sklearn.datasets import make_classification
-from sklearn.svm import LinearSVC
 from torch.utils.data import Dataset
 
 from sle import SLBeta
+
+
+def split_dataset(dataset):
+    example_ids = list(set([ex["example_id"] for ex in dataset]))
+    train_ids, eval_ids = train_test_split(
+            example_ids, train_size=0.8, random_state=0)
+    val_ids, test_ids = train_test_split(
+            eval_ids, test_size=0.5, random_state=0)
+
+    train_idxs = []
+    val_idxs = []
+    test_idxs = []
+    for (i, ex) in enumerate(dataset):
+        if ex["example_id"] in train_ids:
+            train_idxs.append(i)
+        elif ex["example_id"] in val_ids:
+            val_idxs.append(i)
+        elif ex["example_id"] in test_ids:
+            test_idxs.append(i)
+    assert len(train_idxs) + len(val_idxs) + len(test_idxs) == len(dataset)
+    train_ds = dataset.subset(train_idxs)
+    val_ds = dataset.subset(val_idxs)
+    test_ds = dataset.subset(test_idxs)
+    return train_ds, val_ds, test_ds
 
 
 class Annotator(object):
 
     instances = []
 
-    def __init__(self, label_set, trustworthiness=1.0):
-        self.label_set = set(label_set)
-        self.trustworthiness = trustworthiness
+    def __init__(self, label_set, reliability=1.0, confidence=1.0):
         self.id = len(Annotator.instances)
+        self.label_set = set(label_set)
+        self.reliability = reliability
+        self.confidence = confidence
         Annotator.instances.append(self)
 
     def annotate(self, true_label):
         agree = np.random.choice(
                 [True, False],
-                p=[self.trustworthiness, 1. - self.trustworthiness])
+                p=[self.reliability, 1. - self.reliability])
         if agree.item() is True:
             return true_label
         else:
@@ -46,12 +71,14 @@ class MultiAnnotatorDataset(Dataset):
             examples = examples[:n]
         return cls(**data["metadata"], data=examples)
 
-    def __init__(self, n_features, n_examples, annotators=10,
-                 trustworthiness="perfect", random_seed=0, data=None):
-        self.n_features = n_features
+    def __init__(self, n_examples, n_features, annotators=10,
+                 reliability="perfect", confidence="perfect",
+                 random_seed=0, data=None):
         self.n_examples = n_examples
+        self.n_features = n_features
+        self.reliability = reliability
+        self.confidence = confidence
 
-        self.trustworthiness = trustworthiness
         if isinstance(annotators, int):
             self.annotators = self.get_annotators(annotators)
         elif all([isinstance(ann, Annotator) for ann in annotators]):
@@ -72,7 +99,7 @@ class MultiAnnotatorDataset(Dataset):
 
     def __str__(self):
         name = self.__class__.__name__
-        return f"""{name}(n_features={self.n_features}, n_examples={self.n_examples}, annotators={len(self.annotators)}, trustworthiness={self.trustworthiness})"""  # noqa
+        return f"""{name}(n_features={self.n_features}, n_examples={self.n_examples}, annotators={len(self.annotators)}, reliability={self.reliability})"""  # noqa
 
     def __len__(self):
         return len(self._data)
@@ -84,7 +111,7 @@ class MultiAnnotatorDataset(Dataset):
         cls = self.__class__
         return cls(self.n_features, len(idxs),
                    annotators=self.annotators,
-                   trustworthiness=self.trustworthiness,
+                   reliability=self.reliability,
                    random_seed=self.random_seed,
                    data=[self[i] for i in idxs])
 
@@ -105,30 +132,36 @@ class MultiAnnotatorDataset(Dataset):
             yield group
 
     def get_annotators(self, n):
-        if self.trustworthiness == "perfect":
-            trustworthinesses = np.ones(n)
-        elif self.trustworthiness == "high":
-            trustworthinesses = np.random.beta(10, 1, size=n)
-        elif self.trustworthiness == "medium":
-            trustworthinesses = np.random.beta(10, 10, size=n)
-        elif self.trustworthiness == "low":
-            trustworthinesses = np.random.beta(1, 10, size=n)
-        elif self.trustworthiness == "high-outlier":
-            trustworthinesses = np.random.beta(10, 1, size=n)
-            trustworthinesses[0] = 0.1
-        elif self.trustworthiness == "low-outlier":
-            trustworthinesses = np.random.beta(1, 10, size=n)
-            trustworthinesses[0] = 0.9
-        else:
-            raise ValueError(f"Unsupported trustworthiness '{self.trustworthiness}'")  # noqa
-        return [Annotator(self.labels, trustworthinesses[i])
+        params_map = {"perfect": (10, 1e-18),
+                      "high": (10, 1),
+                      "high-outlier": (10, 1),
+                      "medium": (10, 10),
+                      "low": (1, 10),
+                      "low-outlier": (1, 10)
+                      }
+
+        reliability_params = params_map[self.reliability]
+        reliabilities = np.random.beta(*reliability_params, size=n)
+        if self.reliability == "high-outlier":
+            reliabilities[0] = 0.1
+        elif self.reliability == "low-outlier":
+            reliabilities[0] = 0.9
+
+        confidence_params = params_map[self.confidence]
+        confidences = np.random.beta(*confidence_params, size=n)
+        if self.confidence == "high-outlier":
+            confidences[0] = 0.1
+        elif self.confidence == "low-outlier":
+            confidences[0] = 0.9
+
+        return [Annotator(self.labels, reliabilities[i], confidences[i])
                 for i in range(n)]
 
     def generate_data(self):
         np.random.seed(self.random_seed)
         X, y = make_classification(self.n_examples, self.n_features,
-                                   n_classes=2, n_clusters_per_class=2,
-                                   class_sep=1., flip_y=0.02,
+                                   n_classes=3, n_clusters_per_class=1,
+                                   n_redundant=0, class_sep=1.5, flip_y=0.01,
                                    random_state=self.random_seed)
         data = []
         for (i, (x_i, pref_y)) in enumerate(zip(X, y)):
@@ -137,37 +170,10 @@ class MultiAnnotatorDataset(Dataset):
                 uuid = md5(f"{i}{j}".encode()).hexdigest()
                 data.append({"uuid": uuid, "example_id": i,
                              "annotator_id": annotator.id,
-                             "annotator_trustworthiness": annotator.trustworthiness,  # noqa
+                             "annotator_reliability": annotator.reliability,
+                             "annotator_confidence": annotator.confidence,
                              "preferred_y": pref_y,
                              "x": x_i, "y": ann_y})
-
-        data = self.add_uncertainties(data)
-        return data
-
-    def add_uncertainties(self, data):
-        X = np.array([e['x'] for e in data if e["annotator_id"] == 0])
-        y = np.array([e['preferred_y'] for e in data if e["annotator_id"] == 0])  # noqa
-        svc = LinearSVC().fit(X, y)
-        scores = np.abs(svc.decision_function(X))
-        scores = scores / np.max(scores)  # normalize to [0,1]
-
-        score_mean = np.mean(scores)
-        score_sd = np.std(scores)
-        unc_labels_thresholds = [(0.0, "uncertain"),
-                                 (score_mean - score_sd, "somewhat_certain"),
-                                 (score_mean, "certain")]
-        for example in data:
-            score = scores[example["example_id"]]
-            label = None
-            for (t, lab) in unc_labels_thresholds:
-                if score >= t:
-                    label = lab
-            switch_unc_label = np.random.choice([True, False], p=[0.9, 0.1])
-            if switch_unc_label is True:
-                other_labs = [lab for lab in unc_labels_thresholds
-                              if lab != label]
-                label = np.random.choice(other_labs)
-            example["certainty_level"] = label
         return data
 
     def preprocess_data(self, data):
@@ -185,7 +191,8 @@ class MultiAnnotatorDataset(Dataset):
         metadata = {"n_features": self.n_features,
                     "n_examples": self.n_examples,
                     "annotators": len(self.annotators),
-                    "trustworthiness": self.trustworthiness,  # noqa
+                    "reliability": self.reliability,
+                    "confidence": self.confidence,
                     "random_seed": self.random_seed}
         non_tensor_data = []
         for datum in self._data:
@@ -198,32 +205,6 @@ class MultiAnnotatorDataset(Dataset):
                    "examples": non_tensor_data}
         with open(outpath, 'w') as outF:
             json.dump(outdata, outF)
-
-    def plot(self, savepath=None):
-        X = [ex['x'].numpy() for ex in self]
-        Y = [ex['y'].item() for ex in self]
-        X_emb = TSNE(n_components=2).fit_transform(X)
-
-        plt.figure(figsize=(18, 9))
-        plt.subplot(1, 2, 1)
-        color_map = {1.: "#af8dc3", 0.: "#7fbf7b"}
-        colors = [color_map[y] for y in Y]
-        plt.scatter(X_emb[:, 0], X_emb[:, 1], c=colors, alpha=0.3)
-        plt.xticks([])
-        plt.yticks([])
-
-        plt.subplot(1, 2, 2)
-        color_map = {"certain": "#66c2a5",
-                     "somewhat_certain": "#8da0cb",
-                     "uncertain": "#fc8d62"}
-        colors = [color_map[ex["certainty_level"]] for ex in self]
-        plt.scatter(X_emb[:, 0], X_emb[:, 1], c=colors, alpha=0.3)
-        plt.xticks([])
-        plt.yticks([])
-        if savepath is not None:
-            plt.savefig(savepath, dpi=300)
-        else:
-            plt.show()
 
 
 class VotingAggregatedDataset(MultiAnnotatorDataset):
@@ -238,10 +219,10 @@ class VotingAggregatedDataset(MultiAnnotatorDataset):
             datum_cp['y'] = y
             datum_cp["annotator_id"] = [ex["annotator_id"]
                                         for ex in example_group]
-            datum_cp["annotator_trustworthiness"] = [ex["annotator_trustworthiness"]  # noqa
-                                                     for ex in example_group]
-            datum_cp["certainty_level"] = [ex["certainty_level"]
-                                           for ex in example_group]
+            datum_cp["annotator_reliability"] = [ex["annotator_reliability"]  # noqa
+                                                 for ex in example_group]
+            datum_cp["confidence"] = [ex["confidence"]
+                                      for ex in example_group]
             new_data.append(datum_cp)
         return new_data
 
@@ -258,10 +239,10 @@ class FrequencyAggregatedDataset(MultiAnnotatorDataset):
             datum_cp['y'] = torch.tensor(y, dtype=torch.float32)
             datum_cp["annotator_id"] = [ex["annotator_id"]
                                         for ex in example_group]
-            datum_cp["annotator_trustworthiness"] = [ex["annotator_trustworthiness"]  # noqa
-                                                     for ex in example_group]
-            datum_cp["certainty_level"] = [ex["certainty_level"]
-                                           for ex in example_group]
+            datum_cp["annotator_reliability"] = [ex["annotator_reliability"]  # noqa
+                                                 for ex in example_group]
+            datum_cp["confidence"] = [ex["confidence"]
+                                      for ex in example_group]
             new_data.append(datum_cp)
         return new_data
 
@@ -280,10 +261,10 @@ class CatSampleAggregatedDataset(MultiAnnotatorDataset):
             datum_cp['y'] = torch.tensor(y, dtype=torch.float32)
             datum_cp["annotator_id"] = [ex["annotator_id"]
                                         for ex in example_group]
-            datum_cp["annotator_trustworthiness"] = [ex["annotator_trustworthiness"]  # noqa
-                                                     for ex in example_group]
-            datum_cp["certainty_level"] = [ex["certainty_level"]
-                                           for ex in example_group]
+            datum_cp["annotator_reliability"] = [ex["annotator_reliability"]  # noqa
+                                                 for ex in example_group]
+            datum_cp["confidence"] = [ex["confidence"]
+                                      for ex in example_group]
             new_data.append(datum_cp)
         return new_data
 
@@ -328,7 +309,8 @@ class SubjectiveLogicDataset(MultiAnnotatorDataset):
         metadata = {"n_features": self.n_features,
                     "n_examples": self.n_examples,
                     "annotators": len(self.annotators),
-                    "trustworthiness": self.trustworthiness,
+                    "reliability": self.reliability,
+                    "confidence": self.confidence,
                     "random_seed": self.random_seed}
         non_tensor_data = []
         for datum in self._data:
@@ -341,32 +323,6 @@ class SubjectiveLogicDataset(MultiAnnotatorDataset):
                    "examples": non_tensor_data}
         with open(outpath, 'w') as outF:
             json.dump(outdata, outF)
-
-    def plot(self, savepath=None):
-        X = [ex['x'].numpy() for ex in self]
-        Y = [ex['y'].mean for ex in self]
-        X_emb = TSNE(n_components=2).fit_transform(X)
-
-        plt.figure(figsize=(18, 9))
-        plt.subplot(1, 2, 1)
-        color_map = {1.: "#af8dc3", 0.: "#7fbf7b"}
-        colors = [color_map[y] for y in Y]
-        plt.scatter(X_emb[:, 0], X_emb[:, 1], c=colors, alpha=0.3)
-        plt.xticks([])
-        plt.yticks([])
-
-        plt.subplot(1, 2, 2)
-        color_map = {"certain": "#66c2a5",
-                     "somewhat_certain": "#8da0cb",
-                     "uncertain": "#fc8d62"}
-        colors = [color_map[ex["certainty_level"]] for ex in self]
-        plt.scatter(X_emb[:, 0], X_emb[:, 1], c=colors, alpha=0.3)
-        plt.xticks([])
-        plt.yticks([])
-        if savepath is not None:
-            plt.savefig(savepath, dpi=300)
-        else:
-            plt.show()
 
 
 class CumulativeFusionDataset(SubjectiveLogicDataset):
@@ -383,10 +339,10 @@ class CumulativeFusionDataset(SubjectiveLogicDataset):
             datum_cp['y'] = y
             datum_cp["annotator_id"] = [ex["annotator_id"]
                                         for ex in example_group]
-            datum_cp["annotator_trustworthiness"] = [ex["annotator_trustworthiness"]  # noqa
-                                                     for ex in example_group]
-            datum_cp["certainty_level"] = [ex["certainty_level"]
-                                           for ex in example_group]
+            datum_cp["annotator_reliability"] = [ex["annotator_reliability"]  # noqa
+                                                 for ex in example_group]
+            datum_cp["confidence"] = [ex["confidence"]
+                                      for ex in example_group]
             new_data.append(datum_cp)
         return new_data
 
@@ -406,10 +362,10 @@ class SLSampleAggregatedDataset(SubjectiveLogicDataset):
             datum_cp['y'] = y
             datum_cp["annotator_id"] = [ex["annotator_id"]
                                         for ex in example_group]
-            datum_cp["annotator_trustworthiness"] = [ex["annotator_trustworthiness"]  # noqa
-                                                     for ex in example_group]
-            datum_cp["certainty_level"] = [ex["certainty_level"]
-                                           for ex in example_group]
+            datum_cp["annotator_reliability"] = [ex["annotator_reliability"]  # noqa
+                                                 for ex in example_group]
+            datum_cp["confidence"] = [ex["confidence"]
+                                      for ex in example_group]
             new_data.append(datum_cp)
         return new_data
 
@@ -430,7 +386,7 @@ class SLSampleAggregatedDataset(SubjectiveLogicDataset):
         color_map = {"certain": "#66c2a5",
                      "somewhat_certain": "#8da0cb",
                      "uncertain": "#fc8d62"}
-        colors = [color_map[ex["certainty_level"]] for ex in self]
+        colors = [color_map[ex["confidence"]] for ex in self]
         plt.scatter(X_emb[:, 0], X_emb[:, 1], c=colors, alpha=0.3)
         plt.xticks([])
         plt.yticks([])
