@@ -4,23 +4,29 @@ import numpy as np
 import scipy.stats as stats
 import matplotlib.pyplot as plt
 from matplotlib.cm import ScalarMappable
+from sklearn.manifold import TSNE
 from sklearn.linear_model import LogisticRegression
 
+import src.dataloaders as dataloaders
 import src.datasets as datasets
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("dataset_name", type=str)
     parser.add_argument("filepath", type=str)
-    parser.add_argument("-u", type=float, default=1.0,
+    parser.add_argument("-u", type=float, default=0.0,
                         help="Total uncertainty")
     return parser.parse_args()
 
 
 def main(args):
-    data = datasets.MultiAnnotatorDataset.from_file(args.filepath)
-    X = np.array([exs[0]['x'].numpy() for exs in data.examples])
-    y = np.array([exs[0]["preferred_y"].item() for exs in data.examples])
+    dl = dataloaders.load(args.dataset_name, args.filepath)
+    data = datasets.MultiAnnotatorDataset(**dl.train)
+    X = data.X
+    if X.shape[1] > 2:
+        X = TSNE(n_components=2).fit_transform(X)
+    y = data.gold_y
     lr = LogisticRegression().fit(X, y)
 
     fig, ax = plt.subplots(figsize=(8, 4))
@@ -29,7 +35,7 @@ def main(args):
 
     Xmesh = np.c_[xx.ravel(), yy.ravel()]
     probs = lr.predict_proba(Xmesh)
-    probs = recalibrate_probs(probs, args.u)
+    probs = recalibrate_probs(probs, 1. - args.u)
     n_classes = probs.shape[-1]
     ent = stats.entropy(probs, axis=1)
     ent_max = np.log(n_classes)
