@@ -25,6 +25,8 @@ def plot_beta(dist, title=None):
 
 
 def plot_dirichlet(dist, cmap="Blues", title=None):
+    if dist.event_shape[0] != 3:
+        raise ValueError("Can't plot Dirichlets with >3 dimensions.")
     clear_plots()
     data = {}
     for (i, j, k) in simplex_iterator(scale=100, boundary=True):
