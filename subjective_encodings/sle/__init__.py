@@ -69,5 +69,16 @@ def label2dirichlet(label, num_labels, u=0, a=None):
     return SLDirichlet(beliefs, u, a)
 
 
+def fuse(sldists, max_uncertainty=False):
+    if len(sldists) == 1:
+        return sldists[0]
+    fused = sldists[0]
+    for d in sldists[1:]:
+        fused = fused.cumulative_fusion(d)
+    if max_uncertainty is True:
+        fused = fused.max_uncertainty()
+    return fused
+
+
 def cross_entropy(dist1: D.Distribution, dist2: D.Distribution):
     return D.kl_divergence(dist1, dist2) + dist1.entropy()
