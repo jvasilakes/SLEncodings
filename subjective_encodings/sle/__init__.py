@@ -28,27 +28,6 @@ def encode_labels(ys, uncertainties=None, priors=None):
     return encoded
 
 
-def old_encode_labels(labels, num_labels, uncertainties=None, priors=None):
-    labels = torch.as_tensor(labels)
-    if labels.dim() == 0:
-        raise ValueError(f"Input to encode_labels must be a 1 or 2 dimensional vector.")  # noqa
-    elif labels.dim() == 1:
-        labels = labels.unsqueeze(1)
-    elif labels.dim() > 2:
-        raise ValueError(f"Input to encode_labels must be a 1 or 2 dimensional vector.")  # noqa
-
-    if labels.size(1) > 1:
-        raise ValueError("Multi-label tasks not yet supported.")
-
-    if uncertainties is None:
-        uncertainties = [0.] * len(labels)
-    if priors is None:
-        priors = [None] * len(labels)
-    encoded = [encode_one(y, num_labels, u, a)
-               for (y, u, a) in zip(labels, uncertainties, priors)]
-    return encoded
-
-
 def encode_one(y, u=0, a=None):
     """
     y: Tensor() for a single label of shape (K,), where K is the label dim.
@@ -60,17 +39,6 @@ def encode_one(y, u=0, a=None):
         return label2dirichlet(y, u=u, a=a)
     else:
         raise ValueError(f"Unsupported number of unique labels {label_dim}")
-
-
-def old_encode_one(label, num_labels, u=0, a=None):
-    # Binary
-    if num_labels in [1, 2]:
-        return label2beta(label, u=u, a=a)
-    # Multi-class
-    elif num_labels > 2:
-        return label2dirichlet(label, num_labels, u=u, a=a)
-    else:
-        raise ValueError(f"Unsupported number of unique labels {num_labels}")
 
 
 def label2beta(label, u=0, a=None):
