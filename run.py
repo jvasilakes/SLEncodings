@@ -1,28 +1,32 @@
 import os
 import json
+import yaml
 import argparse
 
 import torch
 import numpy as np
 from tqdm import tqdm
 
-import sle
+from src import dataloaders, datasets
 from sle import collate
-import data as D
-from models import LinearNet, SLNet
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--outdir", type=str, required=True,
                         help="Where to save log files.")
-    parser.add_argument("--datadir", type=str, default=None,
-                        help="""Path to directory containing
-                                {train,val,test}.json""")
+    parser.add_argument("--dataset_name", type=str, required=True,
+                        help="""Dataset to load. See `src.dataloaders`
+                                for possible values.""")
+    parser.add_argument("--datadirs", type=str, nargs='+', required=True,
+                        help="""Path(s) to directory containing
+                                dataset files to load.""")
+    parser.add_argument("--model_config", type=str, required=True,
+                        help="Path to config.yaml.")
     parser.add_argument("--label-type", type=str, default="discrete",
                         choices=["discrete", "sl"])
     parser.add_argument("--label-aggregation", type=str, default=None,
-                        choices=["fuse", "vote", "freq", "sample"])
+                        choices=["vote", "fuse", None])
     parser.add_argument("--hidden-dim", type=int, default=3)
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--lr", type=float, default=0.001)
@@ -30,40 +34,49 @@ def parse_args():
     parser.add_argument("--n-train", type=int, default=-1,
                         help="Number of training examples to load.""")
     parser.add_argument("--random_seed", type=int, default=0)
-    parser.add_argument("--generate-data-only", action="store_true",
-                        help="""If set, generate and save data, but
-                                don't train a model.""")
     return parser.parse_args()
 
 
 def main(args):
     np.random.seed(0)
-    dataclass = get_data_class(args.label_type, args.label_aggregation)
-    train_path = os.path.join(args.datadir, "train.json")
-    train_dataset = dataclass.from_file(train_path, n=args.n_train)
-    val_path = os.path.join(args.datadir, "val.json")
-    val_dataset = dataclass.from_file(val_path)
-    test_path = os.path.join(args.datadir, "test.json")
-    test_dataset = dataclass.from_file(test_path)
+
+    # Load the dataset
+    dataset = dataloaders.load(args.dataset_name, *args.datadirs)
+    # (Optionally) encode and aggregate the labels.
+    aggregator = get_data_aggregator(args.label_type, args.label_aggregation)
+    train = aggregator(**dataset.train)
+    val = aggregator(**dataset.val)
+    test = aggregator(**dataset.test)
+
+    collate_fn = None
+    if args.label_type == "sl":
+        collate_fn = collate.sle_default_collate
+
+    # Get data ready for model training.
+    train_loader = torch.utils.data.DataLoader(
+            train, batch_size=args.batch_size, shuffle=True,
+            collate_fn=collate_fn)
+    val_loader = torch.utils.data.DataLoader(
+            val, batch_size=args.batch_size, shuffle=False,
+            collate_fn=collate_fn)
+    test_loader = torch.utils.data.DataLoader(
+            test, batch_size=args.batch_size, shuffle=False,
+            collate_fn=collate_fn)
 
     os.makedirs(args.outdir, exist_ok=False)
-    collate_fn = None
-    if isinstance(train_dataset[0]['y'], (sle.SLBeta, sle.SLDirichlet)):
-        collate_fn = collate.sle_default_collate
-    train_dataloader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=args.batch_size, shuffle=True,
-            collate_fn=collate_fn)
-    val_dataloader = torch.utils.data.DataLoader(
-            val_dataset, batch_size=args.batch_size, shuffle=False,
-            collate_fn=collate_fn)
-    test_dataloader = torch.utils.data.DataLoader(
-            test_dataset, batch_size=args.batch_size, shuffle=False,
-            collate_fn=collate_fn)
 
-    modelclass = get_model_class(args.label_type, args.label_aggregation)
-    model = modelclass(train_dataset.n_features, args.hidden_dim,
-                       train_dataset.label_dim, lr=args.lr)
-    print(model)
+    with open(args.model_config) as config_file:
+        model_args = yaml.safe_load(config_file)
+    # synthetic: linear network
+    # cifar10: resnet
+    # etc.
+    encoder = models.load_encoder_by_dataset_name(
+        args.dataset_name, **model_args["encoder"])
+    # discrete: linear -> softmax
+    # sle: SLELayer
+    decoder = models.load_decoder_by_label_type(
+        args.label_type, **model_args["decoder"])
+    model = model.CombinedModule(encoder, decoder, lr=args.lr)
     model.train()
 
     save_cmdline_args(args, args.outdir)
@@ -137,31 +150,12 @@ def save_cmdline_args(args, outdir):
         json.dump(args.__dict__, outF, indent=2)
 
 
-def get_data_class(label_type, label_aggregation):
+def get_data_aggregator(label_type, label_aggregation):
     lookup = {
-            ("discrete", None): D.MultiAnnotatorDataset,
-            ("discrete", "vote"): D.VotingAggregatedDataset,
-            ("discrete", "freq"): D.FrequencyAggregatedDataset,
-            ("discrete", "sample"): D.CatSampleAggregatedDataset,
-            ("sl", None): D.SubjectiveLogicDataset,
-            ("sl", "fuse"): D.CumulativeFusionDataset,
-            ("sl", "sample"): D.SLSampleAggregatedDataset,
-            }
-    try:
-        return lookup[(label_type, label_aggregation)]
-    except KeyError:
-        raise KeyError(f"Unsupported (label_type, label_aggregation): ({label_type}, {label_aggregation})")  # noqa
-
-
-def get_model_class(label_type, label_aggregation):
-    lookup = {
-            ("discrete", None): LinearNet,
-            ("discrete", "vote"): LinearNet,
-            ("discrete", "freq"): LinearNet,
-            ("discrete", "sample"): LinearNet,
-            ("sl", None): SLNet,
-            ("sl", "fuse"): SLNet,
-            ("sl", "sample"): LinearNet,
+            ("discrete", None): datasets.NonAggregatedDataset,
+            ("discrete", "vote"): datasets.VotingAggregatedDataset,
+            ("sl", None): datasets.NonAggregatedSLDataset,
+            ("sl", "fuse"): datasets.CumulativeFusionDataset,
             }
     try:
         return lookup[(label_type, label_aggregation)]

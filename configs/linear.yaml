@@ -1,0 +1,6 @@
+encoder:
+  input_size: 2
+  hidden_size: 3
+decoder:
+  hidden_size: 3
+  output_size: 3

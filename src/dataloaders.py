@@ -18,9 +18,9 @@ def register(name):
     return add_to_registry
 
 
-def load(dataset_name, path):
+def load(dataset_name, *paths):
     dataset_name = dataset_name.lower()
-    return DATALOADER_REGISTRY[dataset_name](path)
+    return DATALOADER_REGISTRY[dataset_name](*paths)
 
 
 @register("synthetic")
