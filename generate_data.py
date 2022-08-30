@@ -61,6 +61,7 @@ def main(args):
 
     metadata = {"n_examples": args.n_examples,
                 "n_features": args.n_features,
+                "n_classes": 3,
                 "n_annotators": args.n_annotators,
                 "reliability": args.reliability,
                 "certainty": args.certainty,

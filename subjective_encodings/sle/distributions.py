@@ -5,7 +5,6 @@ import sle
 import sle.plotting as plotting
 
 
-
 class SLBeta(D.Beta):
     """
     Beta distribution reparameterized to used belief, disbelief,
@@ -176,8 +175,8 @@ class SLDirichlet(D.Dirichlet):
     """
 
     def __init__(self, b, u, a=None, W=2):
-        b = torch.as_tensor(b)
-        u = torch.as_tensor(u)
+        b = torch.as_tensor(b, dtype=torch.float32)
+        u = torch.as_tensor(u, dtype=torch.float32)
         assert u.dim() == b.dim()
         W = torch.as_tensor(W)
         total = b.sum(dim=-1, keepdim=True) + u
@@ -189,9 +188,9 @@ class SLDirichlet(D.Dirichlet):
         # If prior not specified, use Uniform
         if a is None:
             a = torch.zeros_like(b).fill_(1 / self.b.size(-1))
-        self.a = a
+        self.a = torch.as_tensor(a, dtype=torch.float32)
         assert self.a.shape == self.b.shape
-        self.W = W
+        self.W = torch.as_tensor(W, dtype=torch.float32)
         alphas = self.reparameterize()
         super().__init__(alphas)
 

@@ -2,8 +2,6 @@ import warnings
 
 import torch
 import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.manifold import TSNE
 from torch.utils.data import Dataset
 
 import sle
@@ -73,7 +71,9 @@ class MultiAnnotatorDataset(Dataset):
         """
         Override in subclasses
         """
-        pass
+        for i in range(len(self.Y)):
+            self.X[i] = torch.as_tensor(self.X[i], dtype=torch.float32)
+            self.Y[i] = torch.as_tensor(self.Y[i], dtype=torch.float32)
 
     def aggregate_labels(self):
         """
@@ -91,7 +91,9 @@ class NonAggregatedDataset(MultiAnnotatorDataset):
         new_X = []
         new_Y = []
         for (x, ys) in zip(self.X, self.Y):
-            xs = np.tile(x, (len(ys), 1))
+            tileshape = torch.ones(len(x.shape)+1, dtype=int)
+            tileshape[0] = len(ys)
+            xs = torch.as_tensor(np.tile(x, tileshape), dtype=torch.float32)
             new_X.extend(xs)
             new_Y.extend(ys)
         self.X = new_X
@@ -106,62 +108,19 @@ class VotingAggregatedDataset(MultiAnnotatorDataset):
     def aggregate_labels(self):
         new_Y = []
         for ys in self.Y:
-            y = np.bincount(ys).argmax()
-            new_Y.append(y)
-        self.Y = np.array(new_Y)
-
-
-class FrequencyAggregatedDataset(MultiAnnotatorDataset):
-
-    def __init__(self, *args, **kwargs):
-        raise NotImplementedError()
-
-    def aggregate_labels(self, data):
-        new_data = []
-        for example_group in self.examples:
-            ys = [ex['y'] for ex in example_group]
-            y = np.bincount(ys) / len(ys)
-            y = y[-1]
-            datum_cp = dict(example_group[0])
-            datum_cp['y'] = torch.tensor(y, dtype=torch.float32)
-            datum_cp["annotator_id"] = [ex["annotator_id"]
-                                        for ex in example_group]
-            datum_cp["annotator_reliability"] = [ex["annotator_reliability"]  # noqa
-                                                 for ex in example_group]
-            datum_cp["certainty"] = [ex["certainty"]
-                                     for ex in example_group]
-            new_data.append(datum_cp)
-        return new_data
-
-
-class CatSampleAggregatedDataset(MultiAnnotatorDataset):
-
-    def __init__(self, *args, **kwargs):
-        raise NotImplementedError()
-
-    def aggregate_labels(self, data):
-        new_data = []
-        for example_group in self.examples:
-            ys = [ex['y'] for ex in example_group]
-            ps = np.bincount(ys) / len(ys)
-            if len(ps) == 1:
-                ps = np.array([1., 0.])
-            y = np.random.choice([0., 1.], p=ps)
-            datum_cp = dict(example_group[0])
-            datum_cp['y'] = torch.tensor(y, dtype=torch.float32)
-            datum_cp["annotator_id"] = [ex["annotator_id"]
-                                        for ex in example_group]
-            datum_cp["annotator_reliability"] = [ex["annotator_reliability"]  # noqa
-                                                 for ex in example_group]
-            datum_cp["certainty"] = [ex["certainty"]
-                                     for ex in example_group]
-            new_data.append(datum_cp)
-        return new_data
+            y_idx = ys.argmax(axis=1).bincount().argmax()
+            y_onehot = torch.zeros_like(ys[0])
+            y_onehot[y_idx] = 1.
+            new_Y.append(y_onehot)
+        self.Y = new_Y
 
 
 class SubjectiveLogicDataset(MultiAnnotatorDataset):
+    """
+    Encode individual annotations as Subjective Logic Encodings (SLEs).
+    """
 
-    def preprocess(self):
+    def old_preprocess(self):
         label_dim = len(set([y_i for ys in self.Y for y_i in ys]))
         new_Y = []
         for (ys, ann_params) in zip(self.Y, self.annotator_params):
@@ -173,8 +132,43 @@ class SubjectiveLogicDataset(MultiAnnotatorDataset):
             new_Y.append(ys_enc)
         self.Y = new_Y
 
+    def preprocess(self):
+        new_Y = []
+        for (ys, ann_params) in zip(self.Y, self.annotator_params):
+            uncertainties = None
+            if "certainty" in ann_params[0].keys():
+                uncertainties = [1.0 - ann["certainty"] for ann in ann_params]
+            ys_enc = sle.encode_labels(ys, uncertainties=uncertainties)
+            new_Y.append(ys_enc)
+        self.Y = new_Y
+
+
+class NonAggregatedSLDataset(SubjectiveLogicDataset):
+
+    def preprocess(self):
+        new_X = []
+        new_Y = []
+        for (x, ys, ann_params) in zip(self.X, self.Y, self.annotator_params):
+            # Encode labels as SLEs
+            uncertainties = None
+            if "certainty" in ann_params[0].keys():
+                uncertainties = [1.0 - ann["certainty"] for ann in ann_params]
+            ys_enc = sle.encode_labels(ys, uncertainties=uncertainties)
+            new_Y.extend(ys_enc)
+
+            # Duplicate the inputs
+            tileshape = torch.ones(len(x.shape)+1, dtype=int)
+            tileshape[0] = len(ys)
+            xs = torch.as_tensor(np.tile(x, tileshape), dtype=torch.float32)
+            new_X.extend(xs)
+        self.X = new_X
+        self.Y = new_Y
+
 
 class CumulativeFusionDataset(SubjectiveLogicDataset):
+    """
+    Aggregate SLEs using uncertainty-maximized cumulative fusion.
+    """
 
     def aggregate_labels(self):
         new_Y = []
