@@ -81,17 +81,25 @@ def label2beta(label, u=0, a=None):
     if label.dim() == 0:
         b = label
         d = 1. - label
-    # vector of [belief, disbelief]
     elif label.dim() == 1:
-        assert len(label) == 2
-        b, d = label
+        # vector of [belief]
+        if label.shape[0] == 1:
+            b = label[0]
+            d = 1. - b
+        # vector of [belief, disbelief]
+        elif label.shape[0] == 2:
+            b, d = label
+        else:
+            raise ValueError(f"Unsupported label shape {label.shape}")
     else:
         raise ValueError(f"Unsupported label shape {label.shape}")
 
     if u == 0:
         u = EPS
-    b = b - (EPS / 2)
-    d = d - (EPS / 2)
+    if b > d:
+        b = b - (EPS / 2)
+    else:
+        d = d - (EPS / 2)
     return SLBeta(b, d, u, a)
 
 

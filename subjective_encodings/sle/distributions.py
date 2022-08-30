@@ -55,7 +55,8 @@ class SLBeta(D.Beta):
         b = self.b.detach()
         d = self.d.detach()
         u = self.u.detach()
-        return f"SLBeta({b:.3f}, {d:.3f}, {u:.3f})"
+        # return f"SLBeta({b:.3f}, {d:.3f}, {u:.3f})"
+        return f"SLBeta({b}, {d}, {u})"
 
     def __str__(self):
         b = self.b.detach()
