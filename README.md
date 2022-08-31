@@ -16,15 +16,15 @@ The load the data using the following code.
 
 ```python
 import src.dataloaders as DL
-import src.datasets as DS
+import src.aggregators as agg
 
 cifar10s = SL.CIFAR10SDataLoader("path/to/cifar10-pytorch", "path/to/cifar-10s_t2clamp_redist10.json")
 
 # The basic class for crowdsourced annotations
 # Each example is paired with all its annotations.
-train = DS.MultiAnnotatorDataset(**cifar.train)
-val = DS.MultiAnnotatorDataset(**cifar.val)
-test = DS.MultiAnnotatorDataset(**cifar.test)
+train = agg.MultiAnnotatorDataset(**cifar.train)
+val = agg.MultiAnnotatorDataset(**cifar.val)
+test = agg.MultiAnnotatorDataset(**cifar.test)
 
 # Use it like so
 for (x, y) in train:
@@ -35,7 +35,7 @@ for (x, y) in train:
 
 # Keep each (img, annotation) as a separate example.
 # This means each img with occur multiple times in the dataset.
-train = DS.NonAggregatedDataset(**cifar.train)
+train = agg.NonAggregatedDataset(**cifar.train)
 for (x, y) in train:
 	print(x.shape)
 	print(y.shape)
@@ -43,7 +43,7 @@ for (x, y) in train:
 # torch.Size([10]) (labels,)
 
 # Aggregate labels with majority voting
-train = DS.VotingAggregatedDataset(**cifar.train)
+train = agg.VotingAggregatedDataset(**cifar.train)
 for (x, y) in train:
 	print(x.shape)
 	print(y.shape)
@@ -51,15 +51,15 @@ for (x, y) in train:
 # torch.Size([10]) (labels,)
 
 # Like MultiAnnotatorDataset, but each annotation is an SLE
-train = DS.SubjectiveLogicDataset(**cifar.train)
+train = agg.SubjectiveLogicDataset(**cifar.train)
 
 # Like NonAggregatedDataset, but each annotation is an SLE
-train = DS.NonAggregatedSLDataset(**cifar.train)
+train = agg.NonAggregatedSLDataset(**cifar.train)
 
 # Aggregated labels with cumulative fusion
 # Instead of a one-hot or probabilistic label,
 #   target is a Dirichlet distribution.
-train = DS.CumulativeFusionDataset(**cifar.train)
+train = agg.CumulativeFusionDataset(**cifar.train)
 for (x, y) in train:
 	print(x.shape)
 	print(y)
@@ -81,9 +81,9 @@ Load the data as follows.
 
 ```python
 import src.dataloaders as DL
-import src.datasets as DS
+import src.datasets as agg
 
 synth = DL.SyntheticDataLoader("data/synthetic/perfect/")
-train = DS.VotingAggregatedDataset(**synth.train)
+train = agg.VotingAggregatedDataset(**synth.train)
 # etc.
 ```
