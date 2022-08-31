@@ -12,12 +12,12 @@ def test_binary_one_example():
     label_dim = 2
     x = torch.randn((N, input_dim))
     y = torch.randint(label_dim, size=(N, 1))
-    encoded = sle.encode_labels(y, label_dim)
+    encoded = sle.encode_labels(y)
     encoded = collate_sle_labels(encoded)
     model = torch.nn.Sequential(
             torch.nn.Linear(input_dim, hidden_dim),
             torch.nn.Tanh(),
-            sle.BetaLayer(hidden_dim))
+            sle.SLELayer(hidden_dim, label_dim))
     outputs = model(x)
     loss = D.kl_divergence(outputs, encoded)
     print("y:\t ", y.shape)
@@ -33,12 +33,12 @@ def test_binary_N_examples():
     label_dim = 2
     x = torch.randn((N, input_dim))
     y = torch.randint(label_dim, size=(N, 1))
-    encoded = sle.encode_labels(y, label_dim)
+    encoded = sle.encode_labels(y)
     encoded = collate_sle_labels(encoded)
     model = torch.nn.Sequential(
             torch.nn.Linear(input_dim, hidden_dim),
             torch.nn.Tanh(),
-            sle.BetaLayer(hidden_dim))
+            sle.SLELayer(hidden_dim, label_dim))
     outputs = model(x)
     loss = D.kl_divergence(outputs, encoded)
     print("y:\t ", y.shape)
@@ -53,13 +53,15 @@ def test_multiclass_one_example():
     hidden_dim = 5
     label_dim = 3
     x = torch.randn((N, input_dim))
-    y = torch.randint(label_dim, size=(N, 1))
-    encoded = sle.encode_labels(y, label_dim)
+    y_idxs = torch.randint(label_dim, size=(N,))
+    y = torch.zeros((N, label_dim))
+    y[torch.arange(N), y_idxs] = 1.  # one-hot encoding
+    encoded = sle.encode_labels(y)
     encoded = collate_sle_labels(encoded)
     model = torch.nn.Sequential(
             torch.nn.Linear(input_dim, hidden_dim),
             torch.nn.Tanh(),
-            sle.DirichletLayer(hidden_dim, label_dim))
+            sle.SLELayer(hidden_dim, label_dim))
     outputs = model(x)
     loss = D.kl_divergence(outputs, encoded)
     print("y:\t ", y.shape)
@@ -74,13 +76,15 @@ def test_multiclass_N_examples():
     hidden_dim = 5
     label_dim = 3
     x = torch.randn((N, input_dim))
-    y = torch.randint(label_dim, size=(N, 1))
-    encoded = sle.encode_labels(y, label_dim)
+    y_idxs = torch.randint(label_dim, size=(N,))
+    y = torch.zeros((N, label_dim))
+    y[torch.arange(N), y_idxs] = 1.  # one-hot encoding
+    encoded = sle.encode_labels(y)
     encoded = collate_sle_labels(encoded)
     model = torch.nn.Sequential(
             torch.nn.Linear(input_dim, hidden_dim),
             torch.nn.Tanh(),
-            sle.DirichletLayer(hidden_dim, label_dim))
+            sle.SLELayer(hidden_dim, label_dim))
     outputs = model(x)
     loss = D.kl_divergence(outputs, encoded)
     print("y:\t ", y.shape)

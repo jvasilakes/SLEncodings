@@ -29,6 +29,7 @@ import torch
 import torch.distributions as D
 
 import sle
+from sle.collate import sle_default_collate
 
 N = 5
 x_dim = 10
@@ -38,32 +39,34 @@ y_dim = 2
 # Binary classification
 x = torch.randn(N, x_dim)
 y = torch.randint(y_dim, size=(N,1))
-y_enc = sle.encode_labels(y, y_dim)
-collated = sle.collate.sle_default_collate(y_enc)
+y_enc = sle.encode_labels(y)
+collated = sle_default_collate(y_enc)
 
 model = torch.nn.Sequential(
-	torch.nn.Linear(x_dim, hidden_dim),
-	torch.nn.Tanh(),
-	sle.layers.SLELayer(hidden_dim, y_dim))
+        torch.nn.Linear(x_dim, hidden_dim),
+        torch.nn.Tanh(),
+        sle.layers.SLELayer(hidden_dim, y_dim))
 output = model(x)
 # output will be a SLBeta instance
 loss = D.kl_divergence(collated, output)
+print(loss)
 
 
 # Multi-label classification (4 labels)
-label_dim = 4
-y_idxs = torch.randint(num_labels, size=(N,))
+y_dim = 4
+y_idxs = torch.randint(y_dim, size=(N,))
 y = torch.zeros((N, y_dim))
 y[torch.arange(N), y_idxs] = 1  # one-hot encoding
 y_enc = sle.encode_labels(y)
-collated = sle.collate.sle_default_collate(y_enc)
+collated = sle_default_collate(y_enc)
 # collated will be a SLDirichlet instance
 
 model = torch.nn.Sequential(
-	torch.nn.Linear(x_dim, hidden_dim),
-	torch.nn.Tanh(),
-	sle.layers.SLELayer(hidden_dim, y_dim))
+        torch.nn.Linear(x_dim, hidden_dim),
+        torch.nn.Tanh(),
+        sle.layers.SLELayer(hidden_dim, y_dim))
 output = model(x)
 # output will be a SLDirichlet instance
 loss = D.kl_divergence(collated, output)
+print(loss)
 ```
