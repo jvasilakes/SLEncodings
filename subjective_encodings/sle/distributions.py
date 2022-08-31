@@ -55,14 +55,13 @@ class SLBeta(D.Beta):
         b = self.b.detach()
         d = self.d.detach()
         u = self.u.detach()
-        # return f"SLBeta({b:.3f}, {d:.3f}, {u:.3f})"
         return f"SLBeta({b}, {d}, {u})"
 
     def __str__(self):
         b = self.b.detach()
         d = self.d.detach()
         u = self.u.detach()
-        return f"SLBeta({b:.3f}, {d:.3f}, {u:.3f})"
+        return f"SLBeta({b}, {d}, {u})"
 
     def parameters(self):
         return {'b': self.b, 'd': self.d, 'u': self.u}
@@ -197,15 +196,13 @@ class SLDirichlet(D.Dirichlet):
 
     def __repr__(self):
         b = self.b.detach()
-        b_str = '[' + ', '.join(f"{bi:.3f}" for bi in b) + ']'
         u = self.u.detach()[0].item()
-        return f"SLDirichlet({b_str}, {u:.3f})"
+        return f"SLDirichlet({b}, {u})"
 
     def __str__(self):
         b = self.b.detach()
-        b_str = '[' + ', '.join(f"{bi:.3f}" for bi in b) + ']'
         u = self.u.detach()[0].item()
-        return f"SLDirichlet({b_str}, {u:.3f})"
+        return f"SLDirichlet({b}, {u})"
 
     def parameters(self):
         return {'b': self.b, 'u': self.u}
