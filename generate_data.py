@@ -6,7 +6,7 @@ import numpy as np
 from sklearn.datasets import make_classification
 from sklearn.model_selection import train_test_split
 
-import src.datasets as datasets
+import src.aggregators as aggregators
 
 
 def parse_args():
@@ -93,7 +93,7 @@ def get_annotators(n, label_set, reliability, certainty):
     elif certainty == "low-outlier":
         certainties[0] = 0.9
 
-    return [datasets.Annotator(label_set, reliabilities[i], certainties[i])
+    return [aggregators.Annotator(label_set, reliabilities[i], certainties[i])
             for i in range(n)]
 
 

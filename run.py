@@ -7,7 +7,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 
-from src import dataloaders, datasets, models
+from src import dataloaders, aggregators, models
 from sle import collate, SLBeta, SLDirichlet
 
 
@@ -156,10 +156,10 @@ def save_cmdline_args(args, outdir):
 
 def get_data_aggregator(label_type, label_aggregation):
     lookup = {
-            ("discrete", None): datasets.NonAggregatedDataset,
-            ("discrete", "vote"): datasets.VotingAggregatedDataset,
-            ("sle", None): datasets.NonAggregatedSLDataset,
-            ("sle", "fuse"): datasets.CumulativeFusionDataset,
+            ("discrete", None): aggregators.NonAggregatedDataset,
+            ("discrete", "vote"): aggregators.VotingAggregatedDataset,
+            ("sle", None): aggregators.NonAggregatedSLDataset,
+            ("sle", "fuse"): aggregators.CumulativeFusionDataset,
             }
     try:
         return lookup[(label_type, label_aggregation)]

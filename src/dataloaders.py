@@ -119,6 +119,7 @@ class CIFAR10SDataLoader(object):
                                          random_state=0,
                                          stratify=gold_y[other_i])
 
+        # TODO: Make dataloaders consistent. Return list of tensors or one tensor?
         train = {'X': [X[i] for i in train_i],
                  'Y': [Y[i] for i in train_i],
                  "gold_y": gold_y[train_i],
