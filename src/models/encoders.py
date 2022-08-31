@@ -22,5 +22,5 @@ class LinearEncoder(nn.Module):
                 nn.Tanh())
 
     def forward(self, batch):
-        inputs = batch[0]  # batch = (X, Y)
+        inputs = batch['X']
         return self.encoder(inputs)

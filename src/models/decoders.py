@@ -1,4 +1,7 @@
 import torch.nn as nn
+import torch.distributions as D
+
+import sle
 
 
 DECODER_REGISTRY = {}
@@ -24,7 +27,7 @@ class LinearDecoder(nn.Module):
             self.activation = nn.Sigmoid()
             self._loss_fn = nn.BCELoss()
         else:
-            self.activation = nn.Softmax(dim=1)
+            self.activation = nn.Softmax(dim=-1)
             self._loss_fn = nn.CrossEntropyLoss()
 
         self.predictor = nn.Sequential(
@@ -42,3 +45,42 @@ class LinearDecoder(nn.Module):
         """
         preds = (probs >= self.threshold).int()
         return preds.argmax(axis=1)
+
+    def compute_loss(self, probs, batch):
+        # batch is tuple(x, y)
+        target = batch['Y']
+        return self._loss_fn(probs, target)
+
+
+@register_decoder("sle")
+class SLEDecoder(nn.Module):
+
+    def __init__(self, hidden_size, output_size):
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.output_size = output_size
+
+        if self.output_size == 1:
+            self.activation = nn.Sigmoid()
+        else:
+            self.activation = nn.Softmax(dim=1)
+        self._loss_fn = D.kl_divergence
+
+        self.predictor = sle.SLELayer(hidden_size, output_size)
+
+        self._opt = None
+
+    def forward(self, encoded_inputs):
+        return self.predictor(encoded_inputs)
+
+    def predict(self, dists):
+        """
+        dists = self.forward(inputs)
+        distributions predicted by the SLELayer
+        """
+        preds = dists.mean.argmax(axis=1)
+        return preds
+
+    def compute_loss(self, dists, batch):
+        target = batch['Y']
+        return self._loss_fn(dists, target).mean()

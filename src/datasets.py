@@ -33,11 +33,13 @@ class MultiAnnotatorDataset(Dataset):
     """
     annotators: int or list of Annotator instances
     """
-    def __init__(self, X, Y, annotator_params, gold_y=None):
+    def __init__(self, X, Y, metadata, gold_y=None):
         self.X = X
         self.Y = Y
-        self.annotator_params = annotator_params
-        self._gold_y = gold_y
+        self.metadata = metadata
+        self.gold_y = gold_y
+        if self.gold_y is None:
+            warnings.warn("No gold labels available.")
         self.preprocess()
         self.aggregate_labels()
 
@@ -53,19 +55,15 @@ class MultiAnnotatorDataset(Dataset):
         return len(self.Y)
 
     def __getitem__(self, idx):
-        return (self.X[idx], self.Y[idx])
+        return {'X': self.X[idx],
+                'Y': self.Y[idx],
+                "gold_y": self.gold_y[idx],
+                "metadata": self.metadata[idx]
+                }
 
     @property
     def labels(self):
         return set(self.Y.flatten())
-
-    @property
-    def gold_y(self):
-        if self._gold_y is None:
-            warnings.warn("No gold labels available.")
-            return None
-        else:
-            return self._gold_y
 
     def preprocess(self):
         """
@@ -90,14 +88,21 @@ class NonAggregatedDataset(MultiAnnotatorDataset):
     def preprocess(self):
         new_X = []
         new_Y = []
-        for (x, ys) in zip(self.X, self.Y):
+        new_gold = []
+        new_metadata = []
+        zipped = zip(self.X, self.Y, self.gold_y, self.metadata)
+        for (x, ys, gold, md) in zipped:
             tileshape = torch.ones(len(x.shape)+1, dtype=int)
             tileshape[0] = len(ys)
             xs = torch.as_tensor(np.tile(x, tileshape), dtype=torch.float32)
             new_X.extend(xs)
             new_Y.extend(ys)
+            new_gold.extend([gold for _ in range(len(ys))])
+            new_metadata.extend(md)
         self.X = new_X
         self.Y = new_Y
+        self.gold_y = new_gold
+        self.metadata = new_metadata
 
 
 class VotingAggregatedDataset(MultiAnnotatorDataset):
@@ -123,10 +128,10 @@ class SubjectiveLogicDataset(MultiAnnotatorDataset):
     def old_preprocess(self):
         label_dim = len(set([y_i for ys in self.Y for y_i in ys]))
         new_Y = []
-        for (ys, ann_params) in zip(self.Y, self.annotator_params):
+        for (ys, md) in zip(self.Y, self.metadata):
             uncertainties = None
-            if "certainty" in ann_params[0].keys():
-                uncertainties = [1.0 - ann["certainty"] for ann in ann_params]
+            if "certainty" in md[0].keys():
+                uncertainties = [1.0 - ann["certainty"] for ann in md]
             ys_enc = sle.encode_labels(
                     ys, label_dim, uncertainties=uncertainties)
             new_Y.append(ys_enc)
@@ -134,10 +139,10 @@ class SubjectiveLogicDataset(MultiAnnotatorDataset):
 
     def preprocess(self):
         new_Y = []
-        for (ys, ann_params) in zip(self.Y, self.annotator_params):
+        for (ys, md) in zip(self.Y, self.metadata):
             uncertainties = None
-            if "certainty" in ann_params[0].keys():
-                uncertainties = [1.0 - ann["certainty"] for ann in ann_params]
+            if "certainty" in md[0].keys():
+                uncertainties = [1.0 - ann["certainty"] for ann in md]
             ys_enc = sle.encode_labels(ys, uncertainties=uncertainties)
             new_Y.append(ys_enc)
         self.Y = new_Y
@@ -148,11 +153,12 @@ class NonAggregatedSLDataset(SubjectiveLogicDataset):
     def preprocess(self):
         new_X = []
         new_Y = []
-        for (x, ys, ann_params) in zip(self.X, self.Y, self.annotator_params):
+        new_metadata = []
+        for (x, ys, md) in zip(self.X, self.Y, self.metadata):
             # Encode labels as SLEs
             uncertainties = None
-            if "certainty" in ann_params[0].keys():
-                uncertainties = [1.0 - ann["certainty"] for ann in ann_params]
+            if "certainty" in md[0].keys():
+                uncertainties = [1.0 - ann["certainty"] for ann in md]
             ys_enc = sle.encode_labels(ys, uncertainties=uncertainties)
             new_Y.extend(ys_enc)
 
@@ -161,8 +167,10 @@ class NonAggregatedSLDataset(SubjectiveLogicDataset):
             tileshape[0] = len(ys)
             xs = torch.as_tensor(np.tile(x, tileshape), dtype=torch.float32)
             new_X.extend(xs)
+            new_metadata.extend(md)
         self.X = new_X
         self.Y = new_Y
+        self.metadata = new_metadata
 
 
 class CumulativeFusionDataset(SubjectiveLogicDataset):

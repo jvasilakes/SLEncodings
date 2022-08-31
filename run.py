@@ -7,27 +7,26 @@ import torch
 import numpy as np
 from tqdm import tqdm
 
-from src import dataloaders, datasets
-from sle import collate
+from src import dataloaders, datasets, models
+from sle import collate, SLBeta, SLDirichlet
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--outdir", type=str, required=True,
                         help="Where to save log files.")
-    parser.add_argument("--dataset_name", type=str, required=True,
+    parser.add_argument("--dataset-name", type=str, required=True,
                         help="""Dataset to load. See `src.dataloaders`
                                 for possible values.""")
     parser.add_argument("--datadirs", type=str, nargs='+', required=True,
                         help="""Path(s) to directory containing
                                 dataset files to load.""")
-    parser.add_argument("--model_config", type=str, required=True,
+    parser.add_argument("--model-config", type=str, required=True,
                         help="Path to config.yaml.")
     parser.add_argument("--label-type", type=str, default="discrete",
-                        choices=["discrete", "sl"])
+                        choices=["discrete", "sle"])
     parser.add_argument("--label-aggregation", type=str, default=None,
-                        choices=["vote", "fuse", None])
-    parser.add_argument("--hidden-dim", type=int, default=3)
+                        choices=["vote", "fuse", "none"])
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--batch-size", type=int, default=5)
@@ -39,6 +38,8 @@ def parse_args():
 
 def main(args):
     np.random.seed(0)
+    if args.label_aggregation == "none":
+        args.label_aggregation = None
 
     # Load the dataset
     dataset = dataloaders.load(args.dataset_name, *args.datadirs)
@@ -49,7 +50,7 @@ def main(args):
     test = aggregator(**dataset.test)
 
     collate_fn = None
-    if args.label_type == "sl":
+    if args.label_type == "sle":
         collate_fn = collate.sle_default_collate
 
     # Get data ready for model training.
@@ -76,23 +77,27 @@ def main(args):
     # sle: SLELayer
     decoder = models.load_decoder_by_label_type(
         args.label_type, **model_args["decoder"])
-    model = model.CombinedModule(encoder, decoder, lr=args.lr)
+    model = models.CombinedModule(encoder, decoder, lr=args.lr)
     model.train()
 
     save_cmdline_args(args, args.outdir)
+    model_outputs_dir = os.path.join(args.outdir, "model_outputs")
+    os.makedirs(model_outputs_dir)
 
     losses = []
     for epoch in range(args.epochs):
         if (epoch+1) % 10 == 0:
-            save_model_outputs(model, train_dataset,
-                               epoch=epoch, outdir=args.outdir)
-            accuracy = run_validate(epoch, model, val_dataloader)
+            save_model_outputs(
+                model, train, epoch=epoch, outdir=model_outputs_dir)
+            accuracy = run_validate(epoch, model, val_loader)
             print(f"Accuracy: {accuracy:.4f}")
-        epoch_losses = run_train(epoch, model, train_dataloader)
+        epoch_losses = run_train(epoch, model, train_loader)
         losses.append(epoch_losses)
 
     model.eval()
-    save_model_outputs(model, train_dataset, epoch=epoch, outdir=args.outdir)
+    save_model_outputs(model, train, epoch=epoch, outdir=model_outputs_dir)
+    save_model_outputs(model, val, epoch=epoch,
+                       outdir=model_outputs_dir, split="val")
 
     losslog = os.path.join(args.outdir, "losses.json")
     with open(losslog, 'w') as outF:
@@ -104,7 +109,7 @@ def run_train(epoch, model, dataloader):
     losses = []
     pbar = tqdm(dataloader)
     for (n, batch) in enumerate(dataloader):
-        output = model(batch["x"])
+        output = model(batch)
         loss = model.compute_loss(output, batch)
         loss.backward()
         model.optimizer.step()
@@ -125,13 +130,12 @@ def run_validate(epoch, model, dataloader):
 
     pbar = tqdm(dataloader)
     for (n, batch) in enumerate(dataloader):
-        output = model(batch["x"])
+        output = model(batch)
         loss = model.compute_loss(output, batch)
         losses.append(loss.item())
         preds = model.predict(output)
         all_preds.extend(preds)
-        golds = batch["preferred_y"]
-        all_golds.extend(golds)
+        all_golds.extend(batch["gold_y"].argmax(dim=1))
 
         if n % 100 == 0:
             avg_loss = torch.mean(torch.tensor(losses))
@@ -154,8 +158,8 @@ def get_data_aggregator(label_type, label_aggregation):
     lookup = {
             ("discrete", None): datasets.NonAggregatedDataset,
             ("discrete", "vote"): datasets.VotingAggregatedDataset,
-            ("sl", None): datasets.NonAggregatedSLDataset,
-            ("sl", "fuse"): datasets.CumulativeFusionDataset,
+            ("sle", None): datasets.NonAggregatedSLDataset,
+            ("sle", "fuse"): datasets.CumulativeFusionDataset,
             }
     try:
         return lookup[(label_type, label_aggregation)]
@@ -163,31 +167,26 @@ def get_data_aggregator(label_type, label_aggregation):
         raise KeyError(f"Unsupported (label_type, label_aggregation): ({label_type}, {label_aggregation})")  # noqa
 
 
-def save_model_outputs(model, dataset, epoch=None, outdir=None):
-    outputs = {}
+def save_model_outputs(model, dataset, epoch=None, outdir=None, split="train"):
+    outputs = []
     model.eval()
-    seen = set()
     pbar = tqdm(dataset)
     pbar.set_description("Saving model outputs...")
     for datum in pbar:
+        output = model(datum)
         datum_cp = dict(datum)
-        uuid = datum_cp.pop("uuid")
-        if uuid in seen:
-            continue
-        seen.add(uuid)
-        output = model(datum["x"])
-        if "distribution" in output:
-            output = {k: v.squeeze() for (k, v)
-                      in output["distribution"].parameters().items()}
-            datum_cp['y'] = datum_cp['y'].parameters()
+        if isinstance(output, (SLBeta, SLDirichlet)):
+            output = output.parameters()
+            datum_cp['Y'] = datum_cp['Y'].parameters()
         datum_cp["model_output"] = output
         datum_cp = convert_tensors_to_items(datum_cp)
-        outputs[uuid] = datum_cp
+        outputs.append(datum_cp)
         pbar.update()
 
+    outputs = sorted(outputs, key=lambda x: x["metadata"][0]["example_id"])
     if outdir is None:
         outdir = '.'
-    outpath = os.path.join(outdir, f"outputs_epoch={epoch}.json")
+    outpath = os.path.join(outdir, f"{split}_epoch={epoch}.json")
     with open(outpath, 'w') as outF:
         json.dump(outputs, outF)
 
