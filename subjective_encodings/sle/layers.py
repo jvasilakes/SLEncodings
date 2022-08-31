@@ -28,7 +28,7 @@ class SLELayer(nn.Module):
         beliefs, uncs = params.tensor_split([self.outsize], dim=-1)
         if self.target_cls == SLBeta:
             b, d = beliefs.tensor_split(2, dim=-1)
-            args = [b, d, uncs]
+            args = [b.flatten(), d.flatten(), uncs.flatten()]
         else:
             args = [beliefs, uncs]
         return self.target_cls(*args)
