@@ -112,12 +112,17 @@ class VotingAggregatedDataset(MultiAnnotatorDataset):
 
     def aggregate_labels(self):
         new_Y = []
-        for ys in self.Y:
+        new_metadata = []
+        for (ys, md) in zip(self.Y, self.metadata):
             y_idx = ys.argmax(axis=1).bincount().argmax()
             y_onehot = torch.zeros_like(ys[0])
             y_onehot[y_idx] = 1.
             new_Y.append(y_onehot)
+            new_md = dict(md[0])
+            new_md["annotator_id"] = "vote"
+            new_metadata.append(new_md)
         self.Y = new_Y
+        self.metadata = new_metadata
 
 
 class SubjectiveLogicDataset(MultiAnnotatorDataset):
@@ -180,7 +185,11 @@ class CumulativeFusionDataset(SubjectiveLogicDataset):
 
     def aggregate_labels(self):
         new_Y = []
-        for sle_ys in self.Y:
+        new_metadata = []
+        for (sle_ys, md) in zip(self.Y, self.metadata):
             fused = sle.fuse(sle_ys, max_uncertainty=True)
             new_Y.append(fused)
+            new_md = dict(md[0])
+            new_md["annotator_id"] = "fuse"
+            new_metadata.append(new_md)
         self.Y = new_Y
