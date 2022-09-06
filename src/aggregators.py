@@ -40,6 +40,7 @@ class MultiAnnotatorDataset(Dataset):
         self.gold_y = gold_y
         if self.gold_y is None:
             warnings.warn("No gold labels available.")
+        self.to_tensor()
         self.preprocess()
         self.aggregate_labels()
 
@@ -65,13 +66,18 @@ class MultiAnnotatorDataset(Dataset):
     def labels(self):
         return set(self.Y.flatten())
 
+    def to_tensor(self):
+        for i in range(len(self.Y)):
+            self.X[i] = torch.as_tensor(self.X[i], dtype=torch.float32)
+            self.Y[i] = torch.as_tensor(self.Y[i], dtype=torch.float32)
+            self.gold_y[i] = torch.as_tensor(self.gold_y[i],
+                                             dtype=torch.float32)
+
     def preprocess(self):
         """
         Override in subclasses
         """
-        for i in range(len(self.Y)):
-            self.X[i] = torch.as_tensor(self.X[i], dtype=torch.float32)
-            self.Y[i] = torch.as_tensor(self.Y[i], dtype=torch.float32)
+        pass
 
     def aggregate_labels(self):
         """
@@ -84,7 +90,6 @@ class NonAggregatedDataset(MultiAnnotatorDataset):
     """
     Each annotation is a separate example.
     """
-
     def preprocess(self):
         new_X = []
         new_Y = []
@@ -109,7 +114,6 @@ class VotingAggregatedDataset(MultiAnnotatorDataset):
     """
     Aggregate annotations according to majority voting.
     """
-
     def aggregate_labels(self):
         new_Y = []
         new_metadata = []
@@ -129,19 +133,6 @@ class SubjectiveLogicDataset(MultiAnnotatorDataset):
     """
     Encode individual annotations as Subjective Logic Encodings (SLEs).
     """
-
-    def old_preprocess(self):
-        label_dim = len(set([y_i for ys in self.Y for y_i in ys]))
-        new_Y = []
-        for (ys, md) in zip(self.Y, self.metadata):
-            uncertainties = None
-            if "certainty" in md[0].keys():
-                uncertainties = [1.0 - ann["certainty"] for ann in md]
-            ys_enc = sle.encode_labels(
-                    ys, label_dim, uncertainties=uncertainties)
-            new_Y.append(ys_enc)
-        self.Y = new_Y
-
     def preprocess(self):
         new_Y = []
         for (ys, md) in zip(self.Y, self.metadata):
@@ -154,7 +145,9 @@ class SubjectiveLogicDataset(MultiAnnotatorDataset):
 
 
 class NonAggregatedSLDataset(SubjectiveLogicDataset):
-
+    """
+    Like NonAggregatedDataset but labels are SLEs.
+    """
     def preprocess(self):
         new_X = []
         new_Y = []
@@ -182,7 +175,6 @@ class CumulativeFusionDataset(SubjectiveLogicDataset):
     """
     Aggregate SLEs using uncertainty-maximized cumulative fusion.
     """
-
     def aggregate_labels(self):
         new_Y = []
         new_metadata = []
