@@ -30,26 +30,28 @@ class LinearDecoder(nn.Module):
             self.activation = nn.Softmax(dim=-1)
             self._loss_fn = nn.CrossEntropyLoss()
 
-        self.predictor = nn.Sequential(
-                nn.Linear(self.hidden_size, self.output_size),
-                self.activation)
+        self.predictor = nn.Linear(self.hidden_size, self.output_size)
 
         self._opt = None
 
     def forward(self, encoded_inputs):
         return self.predictor(encoded_inputs)
 
-    def predict(self, probs):
+    def predict(self, logits):
         """
-        probs = self.forward(inputs)
+        logits = self.forward(inputs)
         """
-        preds = (probs >= self.threshold).int()
-        return preds.argmax(axis=1)
+        probs = self.activation(logits)
+        if self.output_size == 1:
+            preds = (probs >= self.threshold).int()
+        else:
+            preds = probs.argmax(axis=1)
+        return preds
 
-    def compute_loss(self, probs, batch):
+    def compute_loss(self, logits, batch):
         # batch is tuple(x, y)
-        target = batch['Y']
-        return self._loss_fn(probs, target)
+        target = batch['Y'].argmax(axis=1)
+        return self._loss_fn(logits, target)
 
 
 @register_decoder("sle")

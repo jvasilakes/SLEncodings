@@ -21,6 +21,8 @@ class CombinedModule(nn.Module):
         self.decoder = decoder
         self.lr = lr
         self._opt = None
+        self._lr_scheduler = None
+        assert self.encoder.hidden_size == self.decoder.hidden_size
 
     def forward(self, batch):
         encoded = self.encoder(batch)
@@ -42,8 +44,20 @@ class CombinedModule(nn.Module):
         """
         return self.decoder.predict(outputs)
 
-    @property
-    def optimizer(self):
-        if self._opt is None:
-            self._opt = torch.optim.Adam(self.parameters(), lr=self.lr)
-        return self._opt
+    def configure_optimizer(self):
+        # Check for a task-specific optimizer
+        if hasattr(self.encoder, "configure_optimizer"):
+            opt_cls, opt_kwargs = self.encoder.configure_optimizer()
+        else:
+            # A good default option
+            opt_cls = torch.optim.Adam
+            opt_kwargs = {}
+        return opt_cls, opt_kwargs
+
+    def configure_lr_scheduler(self):
+        # Check for a learning rate scheduler
+        if hasattr(self.encoder, "configure_lr_scheduler"):
+            sched_cls, sched_kwargs = self.encoder.configure_lr_scheduler()
+        else:
+            sched_cls, sched_kwargs = (None, None)
+        return sched_cls, sched_kwargs
