@@ -2,7 +2,6 @@ import os
 import json
 import warnings
 
-import torch
 import numpy as np
 import pandas as pd
 import torchvision
@@ -20,9 +19,9 @@ def register(name):
     return add_to_registry
 
 
-def load(dataset_name, *paths):
+def load(dataset_name, *paths, **kwargs):
     dataset_name = dataset_name.lower()
-    return DATALOADER_REGISTRY[dataset_name](*paths)
+    return DATALOADER_REGISTRY[dataset_name](*paths, **kwargs)
 
 
 def onehot(y, ydim):
@@ -78,134 +77,6 @@ class SyntheticDataLoader(object):
         return {'X': X, 'Y': Y, "gold_y": gold_y, "metadata": metadata}
 
 
-@register("cifar10s")
-class CIFAR10SDataLoader(object):
-    """
-    datadir: /path/to/dir/ containing cifar-10-python.tar.gz
-    labelfile: /path/to/cifar10s_t2clamp_redist10.json
-    """
-
-    def __init__(self, datadir, labelfile):
-        self.datadir = datadir
-        self.labelfile = labelfile
-        self.train, self.val, self.test = self.load()
-
-    def load(self):
-        transform = transforms.Compose(
-            [transforms.ToTensor(),
-             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-        images = torchvision.datasets.CIFAR10(self.datadir, train=False,
-                                              transform=transform)
-
-        labels_by_img = json.load(open(self.labelfile))
-        X = []
-        Y = []
-        gold_y = []
-        metadata = []
-        for (str_idx, ys) in labels_by_img.items():
-            i = int(str_idx)
-            X.append(images[i][0])
-            Y.append(np.array(ys))
-            gold_y.append(onehot(images[i][1], 10))
-            metadata.append([{"example_id": i} for _ in range(len(ys))])
-        gold_y = np.array(gold_y)
-
-        idxs = list(range(len(labels_by_img)))
-        train_i, other_i = train_test_split(idxs, train_size=0.7,
-                                            shuffle=True, stratify=gold_y)
-        val_i, test_i = train_test_split(other_i, test_size=(2/3),
-                                         stratify=gold_y[other_i])
-
-        train = {'X': [X[i] for i in train_i],
-                 'Y': [Y[i] for i in train_i],
-                 "gold_y": gold_y[train_i],
-                 "metadata": [metadata[i] for i in train_i]}
-        val = {'X': [X[i] for i in val_i],
-               'Y': [Y[i] for i in val_i],
-               "gold_y": gold_y[val_i],
-               "metadata": [metadata[i] for i in val_i]}
-        test = {'X': [X[i] for i in test_i],
-                'Y': [Y[i] for i in test_i],
-                "gold_y": gold_y[test_i],
-                "metadata": [metadata[i] for i in test_i]}
-        return (train, val, test)
-
-
-@register("cifar10h")
-class CIFAR10HDataLoader(object):
-    """
-    datadir: /path/to/dir/ containing cifar-10-python.tar.gz
-    labelfile: /path/to/cifar10s_t2clamp_redist10.json
-    """
-
-    def __init__(self, datadir, labelfile):
-        self.datadir = datadir
-        self.labelfile = labelfile
-        self.train, self.val, self.test = self.load()
-
-    def load(self):
-        transform_augment = transforms.Compose([
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomCrop(32, padding=4)])
-        transform_normalize = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-        ])
-        transform = transforms.Compose([transform_augment, transform_normalize])  # noqa
-        # Per previous work we train on test and validate on train
-        images_train = torchvision.datasets.CIFAR10(
-            self.datadir, train=False, transform=transform)
-        images_val = torchvision.datasets.CIFAR10(
-            self.datadir, train=True, transform=transform)
-
-        annotations = pd.read_csv(self.labelfile)
-        X = []
-        Y = []
-        gold_y = []
-        metadata = []
-        for (i, anns) in annotations.groupby("cifar10_test_test_idx"):
-            # Skip attention checks
-            if i == -99999:
-                continue
-            X.append(images_train[i][0])
-            Y.append([onehot(lab, 10) for lab in anns.chosen_label])
-            gold_y.append(onehot(images_train[i][1], 10))
-            metadata.append([{"example_id": i}
-                             for _ in range(len(anns.chosen_label))])
-        gold_y = np.array(gold_y)
-
-        train_idxs = list(range(len(Y)))
-        train_i, test_i = train_test_split(train_idxs, train_size=7000,
-                                           shuffle=True, stratify=gold_y)
-
-        val_labs = [ex[1] for ex in images_val]
-        val_idxs = list(range(len(val_labs)))
-        val_i, _ = train_test_split(val_idxs, train_size=3000,
-                                    stratify=val_labs)
-        valX = []
-        valY = []
-        val_metadata = []
-        for i in val_i:
-            img, lab = images_val[i]
-            valX.append(img)
-            valY.append([onehot(lab, 10)])
-            val_metadata.append([{"example_id": i}])
-
-        train = {'X': [X[i] for i in train_i],
-                 'Y': [Y[i] for i in train_i],
-                 "gold_y": gold_y[train_i],
-                 "metadata": [metadata[i] for i in train_i]}
-        val = {'X': valX,
-               'Y': valY,
-               "gold_y": valY,
-               "metadata": val_metadata}
-        test = {'X': [X[i] for i in test_i],
-                'Y': [Y[i] for i in test_i],
-                "gold_y": gold_y[test_i],
-                "metadata": [metadata[i] for i in test_i]}
-        return (train, val, test)
-
-
 @register("cifar10")
 class CIFAR10DataLoader(object):
     """
@@ -213,11 +84,18 @@ class CIFAR10DataLoader(object):
     labelfile: /path/to/cifar10s_t2clamp_redist10.json
     """
 
-    def __init__(self, datadir):
+    def __init__(self, datadir, random_seed=0, load=True):
         self.datadir = datadir
-        self.train, self.val, self.test = self.load()
+        self.random_seed = random_seed
+        self.base_train_test, self.base_val = self.load_cifar10base()
+        if load is True:
+            self.train, self.val, self.test = self.load()
 
-    def load(self):
+    def load_cifar10base(self):
+        """
+        Per previous work we train on test and validate on train.
+        We only augment the training data.
+        """
         transform_augment = transforms.Compose([
             transforms.RandomHorizontalFlip(),
             transforms.RandomCrop(32, padding=4)])
@@ -225,28 +103,30 @@ class CIFAR10DataLoader(object):
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
-        transform = transforms.Compose([transform_augment, transform_normalize])  # noqa
-        # Per previous work we train on test and validate on train
-        images_train = torchvision.datasets.CIFAR10(
+        transform = transforms.Compose(
+            [transform_augment, transform_normalize])
+        base_train_test = torchvision.datasets.CIFAR10(
             self.datadir, train=False, transform=transform)
-        images_val = torchvision.datasets.CIFAR10(
+        base_val = torchvision.datasets.CIFAR10(
             self.datadir, train=True, transform=transform_normalize)
-        images_test = torchvision.datasets.CIFAR10(
-            self.datadir, train=False, transform=transform_normalize)
+        return (base_train_test, base_val)
 
-        train_labs = [ex[1] for ex in images_train]
-        train_idxs = list(range(len(train_labs)))
-        train_i, test_i = train_test_split(train_idxs, train_size=7000,
-                                           shuffle=True, stratify=train_labs)
+    def load(self):
+        labs = [ex[1] for ex in self.base_train_test]
+        idxs = list(range(len(labs)))
+        train_i, test_i = train_test_split(
+            idxs, train_size=7000, shuffle=True, stratify=labs,
+            random_state=self.random_seed)
 
-        val_labs = [ex[1] for ex in images_val]
+        val_labs = [ex[1] for ex in self.base_val]
         val_idxs = list(range(len(val_labs)))
-        val_i, _ = train_test_split(val_idxs, train_size=3000,
-                                    stratify=val_labs)
+        val_i, _ = train_test_split(
+            val_idxs, train_size=3000, stratify=val_labs,
+            random_state=self.random_seed)
 
-        train = self.get_data(train_i, images_train)
-        val = self.get_data(val_i, images_val)
-        test = self.get_data(test_i, images_test)
+        train = self.get_data(train_i, self.base_train_test)
+        val = self.get_data(val_i, self.base_val)
+        test = self.get_data(test_i, self.base_train_test)
         return (train, val, test)
 
     def get_data(self, indices, images):
@@ -258,8 +138,80 @@ class CIFAR10DataLoader(object):
             img, lab = images[i]
             X.append(img)
             Y.append([onehot(lab, 10)])
-            gold_y.append([onehot(lab, 10)])
+            gold_y.append(onehot(lab, 10))
             metadata.append([{"example_id": i}])
+        return {'X': X, 'Y': Y, "gold_y": gold_y, "metadata": metadata}
+
+
+@register("cifar10s")
+class CIFAR10SDataLoader(CIFAR10DataLoader):
+    """
+    datadir: /path/to/dir/ containing cifar-10-python.tar.gz
+    labelfile: /path/to/cifar10s_t2clamp_redist10.json
+    """
+
+    def __init__(self, datadir, labelfile, random_seed=0):
+        super().__init__(datadir, random_seed=random_seed, load=False)
+        self.labelfile = labelfile
+        self.train, self.val, self.test = self.load()
+
+    def get_data(self, indices, images):
+        labels_by_img = json.load(open(self.labelfile))
+        # Convert string indices to int
+        labels_by_img = {int(k): v for (k, v) in labels_by_img.items()}
+
+        X = []
+        Y = []
+        gold_y = []
+        metadata = []
+        for i in indices:
+            img, gold_lab = images[i]
+            X.append(img)
+            gold_lab = onehot(gold_lab, 10)
+            gold_y.append(gold_lab)
+            if i in labels_by_img.keys():
+                # If this example is in CIFAR10S, use the soft labels
+                labs = np.array(labels_by_img[i])
+            else:
+                # Otherwise use the gold label
+                labs = np.array([gold_lab])
+            Y.append(labs)
+            metadata.append([{"example_id": i} for _ in range(len(labs))])
+        return {'X': X, 'Y': Y, "gold_y": gold_y, "metadata": metadata}
+
+
+@register("cifar10h")
+class CIFAR10HDataLoader(CIFAR10DataLoader):
+    """
+    datadir: /path/to/dir/ containing cifar-10-python.tar.gz
+    labelfile: /path/to/cifar10s_t2clamp_redist10.json
+    """
+
+    def __init__(self, datadir, labelfile, random_seed=0):
+        super().__init__(datadir, random_seed=random_seed, load=False)
+        self.labelfile = labelfile
+        self.train, self.val, self.test = self.load()
+
+    def get_data(self, indices, images):
+        annotations = pd.read_csv(self.labelfile)
+        labels_by_index = dict((i, list(anns.chosen_label)) for (i, anns)
+                               in annotations.groupby("cifar10_test_test_idx")
+                               if i != -99999)  # Skip attention checks
+        X = []
+        Y = []
+        gold_y = []
+        metadata = []
+        for i in indices:
+            img, gold_lab = images[i]
+            X.append(img)
+            gold_lab = onehot(gold_lab, 10)
+            gold_y.append(gold_lab)
+            if i in labels_by_index.keys():
+                labs = [onehot(lab, 10) for lab in labels_by_index[i]]
+            else:
+                labs = np.array([gold_lab])
+            Y.append(labs)
+            metadata.append([{"example_id": i} for _ in range(len(labs))])
         return {'X': X, 'Y': Y, "gold_y": gold_y, "metadata": metadata}
 
 

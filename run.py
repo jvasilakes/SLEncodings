@@ -59,7 +59,8 @@ def main(args):
         args.label_aggregation = None
 
     # ======== Load the dataset ========
-    dataset = dataloaders.load(args.dataset_name, *args.datadirs)
+    dataset = dataloaders.load(args.dataset_name, *args.datadirs,
+                               random_seed=args.random_seed)
     # (Optionally) encode and aggregate the labels.
     aggregator = get_data_aggregator(args.label_type, args.label_aggregation)
     train = aggregator(**dataset.train)
