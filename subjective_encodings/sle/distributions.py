@@ -45,7 +45,8 @@ class SLBeta(D.Beta):
         assert torch.isclose(total, torch.ones_like(total)).all()
         self.b = b
         self.d = d
-        self.u = torch.where(u == 0., torch.tensor(sle.EPS), u)
+        eps = torch.tensor(sle.EPS, device=u.device)
+        self.u = torch.where(u == 0., eps, u)
         self.a = a
         self.W = W
         c0, c1 = self.reparameterize()
@@ -62,6 +63,18 @@ class SLBeta(D.Beta):
         d = self.d.detach()
         u = self.u.detach()
         return f"SLBeta({b}, {d}, {u})"
+
+    @property
+    def device(self):
+        return self.b.device
+
+    def to(self, device):
+        b = self.b.to(device)
+        d = self.d.to(device)
+        u = self.u.to(device)
+        a = self.a.to(device)
+        W = self.W.to(device)
+        return self.__class__(b, d, u, a, W)
 
     def parameters(self):
         return {'b': self.b, 'd': self.d, 'u': self.u}
@@ -183,7 +196,8 @@ class SLDirichlet(D.Dirichlet):
         assert torch.isclose(total, torch.ones_like(total)).all()
 
         self.b = b
-        self.u = torch.where(u == 0., torch.tensor(sle.EPS), u)
+        eps = torch.tensor(sle.EPS, device=u.device)
+        self.u = torch.where(u == 0., eps, u)
 
         # If prior not specified, use Uniform
         if a is None:
@@ -203,6 +217,17 @@ class SLDirichlet(D.Dirichlet):
         b = self.b.detach()
         u = self.u.detach()[0].item()
         return f"SLDirichlet({b}, {u})"
+
+    @property
+    def device(self):
+        return self.b.device
+
+    def to(self, device):
+        b = self.b.to(device)
+        u = self.u.to(device)
+        a = self.a.to(device)
+        W = self.W.to(device)
+        return self.__class__(b, u, a, W)
 
     def parameters(self):
         return {'b': self.b, 'u': self.u}
