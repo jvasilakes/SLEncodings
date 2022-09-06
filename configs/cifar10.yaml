@@ -1,0 +1,7 @@
+encoder:
+  n: 3
+  res_option: 'A'
+  use_dropout: false
+decoder:
+  hidden_size: 64
+  output_size: 10
