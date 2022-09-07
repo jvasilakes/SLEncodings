@@ -39,12 +39,15 @@ def main(args):
     annotators = get_annotators(args.n_annotators, label_set,
                                 args.reliability, args.certainty)
 
-    data = generate_data(args.n_examples, args.n_features, annotators)
+    data = generate_data(args.n_examples, args.n_features, annotators,
+                         random_seed=args.random_seed)
 
     train_idxs, other_idxs = train_test_split(
-            range(args.n_examples), train_size=0.8)
+        range(args.n_examples), train_size=0.8,
+        random_state=args.random_seed)
     val_idxs, test_idxs = train_test_split(
-            range(len(other_idxs)), test_size=0.5)
+        range(len(other_idxs)), test_size=0.5,
+        random_state=args.random_seed)
 
     train = [data[i] for i in train_idxs]
     val = [data[i] for i in val_idxs]
@@ -97,10 +100,13 @@ def get_annotators(n, label_set, reliability, certainty):
             for i in range(n)]
 
 
-def generate_data(n_examples, n_features, annotators):
+def generate_data(n_examples, n_features, annotators, random_seed=0):
+    n_redundant = min(0, n_features-2)
     X, y = make_classification(n_examples, n_features,
                                n_classes=3, n_clusters_per_class=1,
-                               n_redundant=0, class_sep=1.5, flip_y=0.0)
+                               n_redundant=n_redundant, shift=0.5,
+                               class_sep=0.75, flip_y=0.0,
+                               random_state=random_seed)
 
     data = []
     for (i, (x_i, pref_y)) in enumerate(zip(X, y)):
