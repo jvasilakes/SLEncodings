@@ -45,8 +45,6 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--batch-size", type=int, default=5)
-    parser.add_argument("--n-train", type=int, default=-1,
-                        help="Number of training examples to load.""")
     parser.add_argument("--val-freq", type=int, default=10,
                         help="Run validation every val-freq epochs.")
     parser.add_argument("--random-seed", type=int, default=0)
@@ -166,6 +164,7 @@ def run_train(epoch, model, dataloader, optimizer, lr_scheduler=None):
 
         optimizer.zero_grad()
         loss.backward()
+        # plot_grad_flow(model.named_parameters())
         optimizer.step()
         if lr_scheduler is not None:
             lr_scheduler.step()
@@ -258,7 +257,7 @@ def save_model_outputs(model, dataloader, epoch=None,
             output = output.parameters()
             out_datum['Y'] = out_datum['Y'].parameters()
         out_datum["model_output"] = output
-        out_datum = convert_tensors_to_items(out_datum, squeeze=True)
+        out_datum = convert_tensors_to_items(out_datum, squeeze=False)
         out_examples = uncollate(out_datum)
         outputs.extend(out_examples)
 
@@ -310,6 +309,9 @@ def uncollate(batch):
             raise ValueError("When uncollating a dict, all sub-batches (values) are expected to be list-like.")  # noqa
         uncollated_vals = [uncollate(val) for val in batch.values()]
         if len(set([len(v) for v in uncollated_vals])) > 1:
+            uncollated_keys_vals = [(key, uncollate(val))
+                                    for (key, val) in batch.items()]
+            print([(k, len(v)) for (k, v) in uncollated_keys_vals])
             raise ValueError("When uncollating a dict, all sub-batches (values) are expected to have the same length.")  # noqa
         elements = list(zip(*uncollated_vals))
         return [dict(zip(batch.keys(), element)) for element in elements]
