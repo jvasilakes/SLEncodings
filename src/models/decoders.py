@@ -49,7 +49,6 @@ class LinearDecoder(nn.Module):
         return preds
 
     def compute_loss(self, logits, batch):
-        # batch is tuple(x, y)
         target = batch['Y'].argmax(axis=1)
         return self._loss_fn(logits, target)
 
@@ -62,18 +61,14 @@ class SLEDecoder(nn.Module):
         self.hidden_size = hidden_size
         self.output_size = output_size
 
-        if self.output_size == 1:
-            self.activation = nn.Sigmoid()
-        else:
-            self.activation = nn.Softmax(dim=1)
         self._loss_fn = D.kl_divergence
 
         self.predictor = sle.SLELayer(hidden_size, output_size)
-
         self._opt = None
 
     def forward(self, encoded_inputs):
-        return self.predictor(encoded_inputs)
+        dists = self.predictor(encoded_inputs)
+        return dists.max_uncertainty()
 
     def predict(self, dists):
         """
@@ -85,4 +80,6 @@ class SLEDecoder(nn.Module):
 
     def compute_loss(self, dists, batch):
         target = batch['Y']
-        return self._loss_fn(dists, target).mean()
+        # Reverse KL
+        loss = self._loss_fn(dists, target).mean()
+        return loss
