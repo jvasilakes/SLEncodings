@@ -36,8 +36,9 @@ class SyntheticDataLoader(object):
     dirpath: /path/to/directory containing {metadata,train,val,test}.json
     """
 
-    def __init__(self, dirpath):
+    def __init__(self, dirpath, random_seed=0):
         self.dirpath = dirpath
+        self.random_seed = random_seed
         self.metadata = self.load_metadata()
         self.train = self.load_split("train")
         self.val = self.load_split("val")
