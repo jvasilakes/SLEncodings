@@ -23,10 +23,10 @@ def parse_args():
 def main(args):
     outputs = [json.loads(line) for line in open(args.model_output)]
     hard_metrics = compute_hard_metrics(outputs, args.label_type)
-    print(json.dumps(hard_metrics, indent=2))
+    print(json.dumps(hard_metrics, indent=2, ensure_ascii=False))
 
     soft_metrics = compute_soft_metrics(outputs, args.label_type)
-    print(json.dumps(soft_metrics, indent=2))
+    print(json.dumps(soft_metrics, indent=2, ensure_ascii=False))
 
 
 def compute_hard_metrics(outputs, label_type):
@@ -43,12 +43,12 @@ def compute_hard_metrics(outputs, label_type):
     ap, ar, af, _ = precision_recall_fscore_support(
         ann_y, pred, average="macro")
 
-    return {"gold": {"precision": gp.item(),
-                     "recall": gr.item(),
-                     "f1": gf.item()},
-            "ann": {"precision": ap.item(),
-                    "recall": ar.item(),
-                    "f1": af.item()}
+    return {"gold": {"precision↑": gp.item(),
+                     "recall↑": gr.item(),
+                     "f1↑": gf.item()},
+            "ann": {"precision↑": ap.item(),
+                    "recall↑": ar.item(),
+                    "f1↑": af.item()}
             }
 
 
@@ -73,6 +73,23 @@ def predict(model_output, label_type):
         raise ValueError(f"Unsupported label_type '{label_type}'.")
 
 
+def compute_soft_metrics(model_output, label_type):
+    ann_y = []
+    pred = []
+    for op in model_output:
+        ann_y.append(get_distribution(op['Y'], label_type))
+        pred.append(get_distribution(op["model_output"], label_type))
+
+    kl_mean, kl_sd = forward_kl(ann_y, pred)
+    jsd_mean, jsd_sd = jensen_shannon_divergence(ann_y, pred)
+    sim, corr = normalized_entropy_scores(ann_y, pred)
+
+    return {"kl↓": kl_mean.item(),
+            "jsd↓": jsd_mean.item(),
+            "nes↑": sim.item(),
+            "nec↑": corr.item()}
+
+
 def get_distribution(model_output, label_type):
     """
     label_type = "discrete"
@@ -91,19 +108,12 @@ def get_distribution(model_output, label_type):
             return sle.SLDirichlet(**model_output)
 
 
-def compute_soft_metrics(model_output, label_type):
-    ann_y = []
-    pred = []
-    for op in model_output:
-        ann_y.append(get_distribution(op['Y'], label_type))
-        pred.append(get_distribution(op["model_output"], label_type))
-
-    jsd_mean, jsd_sd = jensen_shannon_divergence(ann_y, pred)
-    sim, corr = normalized_entropy_scores(ann_y, pred)
-
-    return {"jsd": jsd_mean.item(),
-            "nes": sim.item(),
-            "nec": corr.item()}
+def forward_kl(gold_dists, pred_dists):
+    kls = []
+    for (g, p) in zip(gold_dists, pred_dists):
+        kl = D.kl_divergence(g, p)
+        kls.append(kl)
+    return (np.mean(kls), np.std(kls))
 
 
 def jensen_shannon_divergence(gold_dists, pred_dists):
