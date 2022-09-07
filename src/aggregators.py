@@ -185,3 +185,4 @@ class CumulativeFusionDataset(SubjectiveLogicDataset):
             new_md["annotator_id"] = "fuse"
             new_metadata.append(new_md)
         self.Y = new_Y
+        self.metadata = new_metadata
