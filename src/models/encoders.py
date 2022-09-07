@@ -24,7 +24,8 @@ class LinearEncoder(nn.Module):
         self.hidden_size = hidden_size
         self.encoder = nn.Sequential(
                 nn.Linear(input_size, self.hidden_size),
-                nn.Tanh())
+                nn.ReLU()
+        )
 
     def forward(self, batch):
         inputs = batch['X']
