@@ -42,11 +42,12 @@ class SLBeta(D.Beta):
         a = torch.as_tensor(a)
 
         total = b + d + u
-        assert torch.isclose(total, torch.ones_like(total)).all()
+        assert torch.isclose(total, torch.ones_like(total)).all(), str(b)
         self.b = b
         self.d = d
         eps = torch.tensor(sle.EPS, device=u.device)
-        self.u = torch.where(u == 0., eps, u)
+        self.u = torch.where(torch.isclose(u, torch.tensor(0.)),
+                             eps, u)
         self.a = a
         self.W = W
         c0, c1 = self.reparameterize()
@@ -190,14 +191,17 @@ class SLDirichlet(D.Dirichlet):
     def __init__(self, b, u, a=None, W=2):
         b = torch.as_tensor(b, dtype=torch.float32)
         u = torch.as_tensor(u, dtype=torch.float32)
+        if u.dim() < b.dim():
+            u = u.unsqueeze(0)
         assert u.dim() == b.dim()
         W = torch.as_tensor(W)
         total = b.sum(dim=-1, keepdim=True) + u
-        assert torch.isclose(total, torch.ones_like(total)).all()
+        assert torch.isclose(total, torch.ones_like(total)).all(), str(b)
 
         self.b = b
         eps = torch.tensor(sle.EPS, device=u.device)
-        self.u = torch.where(u == 0., eps, u)
+        self.u = torch.where(torch.isclose(u, torch.tensor(0.)),
+                             eps, u)
 
         # If prior not specified, use Uniform
         if a is None:
@@ -210,12 +214,12 @@ class SLDirichlet(D.Dirichlet):
 
     def __repr__(self):
         b = self.b.detach()
-        u = self.u.detach()[0].item()
+        u = self.u.detach()
         return f"SLDirichlet({b}, {u})"
 
     def __str__(self):
         b = self.b.detach()
-        u = self.u.detach()[0].item()
+        u = self.u.detach()
         return f"SLDirichlet({b}, {u})"
 
     @property

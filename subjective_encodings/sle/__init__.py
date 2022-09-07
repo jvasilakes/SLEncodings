@@ -2,7 +2,7 @@ import torch
 import torch.distributions as D
 
 from .distributions import SLBeta, SLDirichlet
-from .layers import SLELayer
+from .layers import SLELayer  # noqa, make available at package level
 
 
 # Smoothing one-hot labels so KL-divergence is okay for optimization.
