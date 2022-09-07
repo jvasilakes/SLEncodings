@@ -1,5 +1,6 @@
 import argparse
 
+import torch
 import numpy as np
 import scipy.stats as stats
 import matplotlib.pyplot as plt
@@ -24,11 +25,12 @@ def parse_args():
 def main(args):
     dl = dataloaders.load(args.dataset_name, *args.datadirs)
     data = aggregators.MultiAnnotatorDataset(**dl.train)
-    X = data.X
+    # data.X is a list of tensors
+    X = torch.vstack(data.X).numpy()
     if X.shape[1] > 2:
         X = TSNE(n_components=2).fit_transform(X)
 
-    gold_y = data.gold_y.argmax(axis=-1).numpy()
+    gold_y = [y.argmax() for y in data.gold_y]
     if args.annotator_id is None:
         y = gold_y
         print(f"total_uncertainty: {args.u}")
@@ -64,6 +66,7 @@ def main(args):
 
 def get_logisitic_regression_entropies(X, y, u):
     lr = LogisticRegression().fit(X, y)
+    print(f"LR train acc: {lr.score(X, y):.4f}")
 
     # x and y coordinates, not inputs and outputs
     X0, X1 = X[:, 0], X[:, 1]
