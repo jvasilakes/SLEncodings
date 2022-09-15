@@ -3,6 +3,7 @@ import warnings
 import torch
 import numpy as np
 from torch.utils.data import Dataset
+from tqdm import tqdm
 
 import sle
 
@@ -129,13 +130,31 @@ class VotingAggregatedDataset(MultiAnnotatorDataset):
         self.metadata = new_metadata
 
 
+class SoftVotingAggregatedDataset(MultiAnnotatorDataset):
+    """
+    Aggregate annotations returning count probabilities.
+    """
+    def aggregate_labels(self):
+        new_Y = []
+        new_metadata = []
+        for (ys, md) in zip(self.Y, self.metadata):
+            y = ys.sum(axis=0) / ys.size(0)
+            new_Y.append(y)
+            new_md = dict(md[0])
+            new_md["annotator_id"] = "soft-vote"
+            new_metadata.append(new_md)
+        self.Y = new_Y
+        self.metadata = new_metadata
+
+
 class SubjectiveLogicDataset(MultiAnnotatorDataset):
     """
     Encode individual annotations as Subjective Logic Encodings (SLEs).
     """
     def preprocess(self):
         new_Y = []
-        for (ys, md) in zip(self.Y, self.metadata):
+        print("preprocess")
+        for (ys, md) in tqdm(list(zip(self.Y, self.metadata))):
             uncertainties = None
             if "certainty" in md[0].keys():
                 uncertainties = [1.0 - ann["certainty"] for ann in md]
@@ -178,7 +197,8 @@ class CumulativeFusionDataset(SubjectiveLogicDataset):
     def aggregate_labels(self):
         new_Y = []
         new_metadata = []
-        for (sle_ys, md) in zip(self.Y, self.metadata):
+        print('agg')
+        for (sle_ys, md) in tqdm(list(zip(self.Y, self.metadata))):
             fused = sle.fuse(sle_ys, max_uncertainty=True)
             new_Y.append(fused)
             new_md = dict(md[0])
