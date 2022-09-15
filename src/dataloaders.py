@@ -7,6 +7,7 @@ import pandas as pd
 import torchvision
 import torchvision.transforms as transforms
 from sklearn.model_selection import train_test_split
+from tqdm import tqdm
 
 
 DATALOADER_REGISTRY = {}
@@ -36,11 +37,12 @@ class SyntheticDataLoader(object):
     dirpath: /path/to/directory containing {metadata,train,val,test}.json
     """
 
-    def __init__(self, dirpath, random_seed=0):
+    def __init__(self, dirpath, n_train=-1, random_seed=0):
         self.dirpath = dirpath
+        self.n_train = n_train
         self.random_seed = random_seed
         self.metadata = self.load_metadata()
-        self.train = self.load_split("train")
+        self.train = self.load_split("train", n=n_train)
         self.val = self.load_split("val")
         self.test = self.load_split("test")
 
@@ -50,7 +52,7 @@ class SyntheticDataLoader(object):
             raise ValueError(f"No metadata.json found in {self.dirpath}!")
         return json.load(open(filepath))
 
-    def load_split(self, split="train"):
+    def load_split(self, split="train", n=-1):
         filepath = os.path.join(self.dirpath, f"{split}.json")
         if os.path.isfile(filepath) is False:
             warnings.warn("No {split}.json found!")
@@ -75,6 +77,9 @@ class SyntheticDataLoader(object):
                          "annotator_certainty": ann["annotator_certainty"]}
                         )
 
+        if n > 0:
+            return {'X': X[:n], 'Y': Y[:n],
+                    "gold_y": gold_y[:n], "metadata": metadata[:n]}
         return {'X': X, 'Y': Y, "gold_y": gold_y, "metadata": metadata}
 
 
@@ -85,8 +90,9 @@ class CIFAR10DataLoader(object):
     labelfile: /path/to/cifar10s_t2clamp_redist10.json
     """
 
-    def __init__(self, datadir, random_seed=0, load=True):
+    def __init__(self, datadir, n_train=-1, random_seed=0, load=True):
         self.datadir = datadir
+        self.n_train = n_train
         self.random_seed = random_seed
         self.base_train_test, self.base_val = self.load_cifar10base()
         if load is True:
@@ -125,6 +131,9 @@ class CIFAR10DataLoader(object):
             val_idxs, train_size=3000, stratify=val_labs,
             random_state=self.random_seed)
 
+        if self.n_train > 0:
+            np.random.shuffle(train_i)
+            train_i = train_i[:self.n_train]
         train = self.get_data(train_i, self.base_train_test)
         val = self.get_data(val_i, self.base_val)
         test = self.get_data(test_i, self.base_train_test)
@@ -151,8 +160,9 @@ class CIFAR10SDataLoader(CIFAR10DataLoader):
     labelfile: /path/to/cifar10s_t2clamp_redist10.json
     """
 
-    def __init__(self, datadir, labelfile, random_seed=0):
-        super().__init__(datadir, random_seed=random_seed, load=False)
+    def __init__(self, datadir, labelfile, n_train=-1, random_seed=0):
+        super().__init__(datadir, n_train=n_train,
+                         random_seed=random_seed, load=False)
         self.labelfile = labelfile
         self.train, self.val, self.test = self.load()
 
@@ -165,7 +175,7 @@ class CIFAR10SDataLoader(CIFAR10DataLoader):
         Y = []
         gold_y = []
         metadata = []
-        for i in indices:
+        for i in tqdm(indices):
             img, gold_lab = images[i]
             X.append(img)
             gold_lab = onehot(gold_lab, 10)
@@ -188,27 +198,29 @@ class CIFAR10HDataLoader(CIFAR10DataLoader):
     labelfile: /path/to/cifar10s_t2clamp_redist10.json
     """
 
-    def __init__(self, datadir, labelfile, random_seed=0):
-        super().__init__(datadir, random_seed=random_seed, load=False)
+    def __init__(self, datadir, labelfile, n_train=-1, random_seed=0):
+        super().__init__(datadir, n_train=n_train,
+                         random_seed=random_seed, load=False)
         self.labelfile = labelfile
+        annotations = pd.read_csv(self.labelfile)
+        self.labels_by_index = dict(
+            (i, list(anns.chosen_label)) for (i, anns)
+            in annotations.groupby("cifar10_test_test_idx")
+            if i != -99999)  # Skip attention checks
         self.train, self.val, self.test = self.load()
 
     def get_data(self, indices, images):
-        annotations = pd.read_csv(self.labelfile)
-        labels_by_index = dict((i, list(anns.chosen_label)) for (i, anns)
-                               in annotations.groupby("cifar10_test_test_idx")
-                               if i != -99999)  # Skip attention checks
         X = []
         Y = []
         gold_y = []
         metadata = []
-        for i in indices:
+        for i in tqdm(indices):
             img, gold_lab = images[i]
             X.append(img)
             gold_lab = onehot(gold_lab, 10)
             gold_y.append(gold_lab)
-            if i in labels_by_index.keys():
-                labs = [onehot(lab, 10) for lab in labels_by_index[i]]
+            if i in self.labels_by_index.keys():
+                labs = [onehot(lab, 10) for lab in self.labels_by_index[i]]
             else:
                 labs = np.array([gold_lab])
             Y.append(labs)
