@@ -41,12 +41,15 @@ def parse_args():
     parser.add_argument("--label-type", type=str, default="discrete",
                         choices=["discrete", "sle"])
     parser.add_argument("--label-aggregation", type=str, default=None,
-                        choices=["vote", "fuse", "none"])
+                        choices=["vote", "soft", "fuse", "none"])
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--batch-size", type=int, default=5)
     parser.add_argument("--val-freq", type=int, default=10,
                         help="Run validation every val-freq epochs.")
+    parser.add_argument("--n-train", type=int, default=-1,
+                        help="Number of training examples to load.")
+    parser.add_argument("--run-test", default=False, action="store_true")
     parser.add_argument("--random-seed", type=int, default=0)
     return parser.parse_args()
 
@@ -58,12 +61,13 @@ def main(args):
 
     # ======== Load the dataset ========
     dataset = dataloaders.load(args.dataset_name, *args.datadirs,
+                               n_train=args.n_train,
                                random_seed=args.random_seed)
     # (Optionally) encode and aggregate the labels.
     aggregator = get_data_aggregator(args.label_type, args.label_aggregation)
     train = aggregator(**dataset.train)
-    val = aggregator(**dataset.val)
-    test = aggregator(**dataset.test)
+    val = aggregator(**dataset.train)
+    #val = aggregator(**dataset.val)
 
     # ==== Get data ready for model training ====
     collate_fn = None
@@ -76,9 +80,12 @@ def main(args):
     val_loader = torch.utils.data.DataLoader(
             val, batch_size=args.batch_size, shuffle=False,
             collate_fn=collate_fn)
-    test_loader = torch.utils.data.DataLoader(
-            test, batch_size=args.batch_size, shuffle=False,
-            collate_fn=collate_fn)
+
+    if args.run_test is True:
+        test = aggregator(**dataset.test)
+        test_loader = torch.utils.data.DataLoader(
+                test, batch_size=args.batch_size, shuffle=False,
+                collate_fn=collate_fn)
 
     os.makedirs(args.outdir, exist_ok=False)
 
@@ -120,7 +127,7 @@ def main(args):
     # ======= Run training =======
     train_losses = {}
     val_losses = {}
-    best_val_acc = 0.0
+    best_val_loss = torch.inf
     for epoch in range(args.epochs):
         train_loss = run_train(epoch, model, train_loader, optimizer)
         train_losses[epoch] = train_loss
@@ -129,10 +136,10 @@ def main(args):
             val_acc, val_loss = run_validate(epoch, model, val_loader)
             val_losses[epoch] = val_loss
             print(f"(Val {epoch}) Accuracy: {val_acc:.4f}, Loss: {val_loss:.4f}")  # noqa
-            if val_acc > best_val_acc:
-                print(f"Accuracy improved {best_val_acc:.4f} -> {val_acc:.4f}")
+            if val_loss < best_val_loss:
+                print(f"Val loss improved {best_val_loss:.4f} -> {val_loss:.4f}")  # noqa
                 print("Saving new best model.")
-                best_val_acc = val_acc
+                best_val_loss = val_loss
                 save_model(model, epoch=epoch, outdir=model_ckpt_dir)
                 save_model_outputs(model, val_loader, epoch=epoch,
                                    outdir=model_outputs_dir, split="val")
@@ -145,12 +152,13 @@ def main(args):
     with open(losslog, 'w') as outF:
         json.dump(val_losses, outF)
 
-    print("Loading best performing model on validation set...")
-    model = load_model(model_ckpt_dir, epoch=-1)
-    test_acc, test_loss = run_validate(epoch, model, test_loader)
-    print(f"(Test) Accuracy: {test_acc:.4f}, Loss: {test_loss:.4f}")
-    save_model_outputs(model, test_loader, epoch=epoch,
-                       outdir=model_outputs_dir, split="test")
+    if args.run_test is True:
+        print("Loading best performing model on validation set...")
+        model = load_model(model_ckpt_dir, epoch=-1)
+        test_acc, test_loss = run_validate(epoch, model, test_loader)
+        print(f"(Test) Accuracy: {test_acc:.4f}, Loss: {test_loss:.4f}")
+        save_model_outputs(model, test_loader, epoch=epoch,
+                           outdir=model_outputs_dir, split="test")
 
 
 def run_train(epoch, model, dataloader, optimizer, lr_scheduler=None):
@@ -164,6 +172,7 @@ def run_train(epoch, model, dataloader, optimizer, lr_scheduler=None):
 
         optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
         # plot_grad_flow(model.named_parameters())
         optimizer.step()
         if lr_scheduler is not None:
@@ -208,6 +217,7 @@ def get_data_aggregator(label_type, label_aggregation):
     lookup = {
             ("discrete", None): aggregators.NonAggregatedDataset,
             ("discrete", "vote"): aggregators.VotingAggregatedDataset,
+            ("discrete", "soft"): aggregators.SoftVotingAggregatedDataset,
             ("sle", None): aggregators.NonAggregatedSLDataset,
             ("sle", "fuse"): aggregators.CumulativeFusionDataset,
             }
