@@ -13,9 +13,9 @@ import sle
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model-output", type=str, required=True,
+    parser.add_argument("model_output", type=str,
                         help="""Path to model outputs json file.""")
-    parser.add_argument("--label-type", type=str, required=True,
+    parser.add_argument("label_type", type=str,
                         choices=["discrete", "sle"])
     return parser.parse_args()
 
