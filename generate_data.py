@@ -19,6 +19,8 @@ def parse_args():
                         help="The input dimension.")
     parser.add_argument("--n-annotators", type=int, default=3,
                         help="The number of annotator per example.")
+    parser.add_argument("--class-sep", type=float, default=2.,
+                        help="Argument to sklearn.make_classification.")
     parser.add_argument("--reliability", type=str, default="high",
                         choices=["perfect", "high", "high-outlier", "medium",
                                  "low", "low-outlier"],
@@ -40,7 +42,7 @@ def main(args):
                                 args.reliability, args.certainty)
 
     data = generate_data(args.n_examples, args.n_features, annotators,
-                         random_seed=args.random_seed)
+                         args.class_sep, random_seed=args.random_seed)
 
     train_idxs, other_idxs = train_test_split(
         range(args.n_examples), train_size=0.8,
@@ -100,12 +102,13 @@ def get_annotators(n, label_set, reliability, certainty):
             for i in range(n)]
 
 
-def generate_data(n_examples, n_features, annotators, random_seed=0):
+def generate_data(n_examples, n_features, annotators,
+                  class_sep, random_seed=0):
     n_redundant = min(0, n_features-2)
     X, y = make_classification(n_examples, n_features,
                                n_classes=3, n_clusters_per_class=1,
                                n_redundant=n_redundant, shift=0.5,
-                               class_sep=0.75, flip_y=0.0,
+                               class_sep=class_sep, flip_y=0.0,
                                random_state=random_seed)
 
     data = []
