@@ -29,7 +29,6 @@ class SLBeta(D.Beta):
 
     See help(torch.distribution.Beta) for more information.
     """
-
     def __init__(self, b, d, u, a=None, W=2):
         # First, convert to tensors
         b = torch.as_tensor(b)
@@ -160,6 +159,15 @@ class SLBeta(D.Beta):
         new_d = trust_opinion.mean * self.d
         new_u = 1 - (trust_opinion.mean * (self.b + self.d))
         return self.__class__(new_b, new_d, new_u, a=self.a, W=self.W)
+
+    def get_uniform(self):
+        """
+        Create a uniform SLBeta distribution.
+        """
+        b = torch.zeros_like(self.b)
+        d = torch.zeros_like(self.d)
+        u = torch.ones_like(self.u)
+        return self.__class__(b, d, u)
 
     def plot(self):
         plotting.plot_beta(self, title=str(self)).show()
@@ -292,6 +300,14 @@ class SLDirichlet(D.Dirichlet):
         new_b = trust_opinion.mean * self.b
         new_u = 1 - (trust_opinion.mean * (self.b.sum()))
         return self.__class__(new_b, new_u, a=self.a, W=self.W)
+
+    def get_uniform(self):
+        """
+        Create a uniform SLDirichlet distribution.
+        """
+        b = torch.zeros_like(self.b)
+        u = torch.ones_like(self.u)
+        return self.__class__(b, u)
 
     def plot(self):
         plotting.plot_dirichlet(self, title=str(self)).show()
