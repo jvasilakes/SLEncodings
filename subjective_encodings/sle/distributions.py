@@ -230,6 +230,14 @@ class SLDirichlet(D.Dirichlet):
         u = self.u.detach()
         return f"SLDirichlet({b}, {u})"
 
+    def __eq__(self, other):
+        return all([
+            (self.b == other.b).all(),
+            (self.u == other.u).all(),
+            (self.a == other.a).all(),
+            self.W == other.W]
+        )
+
     @property
     def device(self):
         return self.b.device

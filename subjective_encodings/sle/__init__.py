@@ -24,9 +24,36 @@ def encode_labels(ys, uncertainties=None, priors=None):
         uncertainties = torch.zeros((ys.shape[0],))
     if priors is None:
         priors = [None] * ys.shape[0]
-    encoded = [encode_one(y, u, a) for (y, u, a)
-               in zip(ys, uncertainties, priors)]
+    encoded = batch_encode(ys, uncertainties, priors)
+    # encoded = [encode_one(y, u, a) for (y, u, a)
+    #            in zip(ys, uncertainties, priors)]
     return encoded
+
+
+def batch_encode(ys, uncertainties=None, priors=None):
+    label_dim = ys.shape[1]
+    if label_dim in [1, 2]:
+        pass
+    elif label_dim > 2:
+        if uncertainties is None:
+            uncs = torch.zeros((ys.size(0), 1), dtype=torch.float32).fill_(EPS)
+        else:
+            uncs = torch.as_tensor(uncertainties, dtype=torch.float32)
+            if uncs.dim() == 1:
+                uncs = uncs.unsqueeze(1)
+        uncs[uncs == 0.] = EPS  # Smoothing dogmatic opinions
+        beliefs = ys - (uncs * ys)
+        if priors is None:
+            priors = torch.ones(ys.size(), dtype=torch.float32)
+            priors /= torch.ones(ys.size(0), 1).fill_(ys.size(1))
+        else:
+            priors = torch.as_tensor(priors, dtype=torch.float32)
+            if priors.dim() == 1:
+                priors = priors.unsqueeze(1)
+        return [SLDirichlet(b, u, a) for (b, u, a) in
+                zip(beliefs, uncs, priors)]
+    else:
+        raise ValueError(f"Unsupported number of labels {label_dim}")
 
 
 def encode_one(y, u=0, a=None):
