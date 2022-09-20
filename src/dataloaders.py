@@ -7,7 +7,6 @@ import pandas as pd
 import torchvision
 import torchvision.transforms as transforms
 from sklearn.model_selection import train_test_split
-from tqdm import tqdm
 
 
 DATALOADER_REGISTRY = {}
@@ -175,7 +174,7 @@ class CIFAR10SDataLoader(CIFAR10DataLoader):
         Y = []
         gold_y = []
         metadata = []
-        for i in tqdm(indices):
+        for i in indices:
             img, gold_lab = images[i]
             X.append(img)
             gold_lab = onehot(gold_lab, 10)
@@ -214,7 +213,7 @@ class CIFAR10HDataLoader(CIFAR10DataLoader):
         Y = []
         gold_y = []
         metadata = []
-        for i in tqdm(indices):
+        for i in indices:
             img, gold_lab = images[i]
             X.append(img)
             gold_lab = onehot(gold_lab, 10)
