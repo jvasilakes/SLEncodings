@@ -18,7 +18,7 @@ The load the data using the following code.
 import src.dataloaders as DL
 import src.aggregators as agg
 
-cifar10s = SL.CIFAR10SDataLoader("path/to/cifar10-pytorch", "path/to/cifar-10s_t2clamp_redist10.json")
+cifar = SL.CIFAR10SDataLoader("path/to/cifar10-pytorch", "path/to/cifar-10s_t2clamp_redist10.json")
 
 # The basic class for crowdsourced annotations
 # Each example is paired with all its annotations.
@@ -65,6 +65,21 @@ for (x, y) in train:
 	print(y)
 # torch.Size([3, 32, 32])  img dims
 # SLDirichlet([0., 0., 0., 0., 0.954, 0.029, 0., 0.017, 0., 0.], 0.)
+```
+
+
+### Quick loading
+
+You can save aggregated datasets like so
+
+```python
+import src.dataloaders as DL
+import src.aggregators as agg
+
+cifar = SL.CIFAR10SDataLoader("path/to/cifar10-pytorch", "path/to/cifar-10s_t2clamp_redist10.json")
+train = agg.NonAggregatedDataset(**cifar.train)
+train.save("train.pkl")
+train_reloaded = NonAggregatedDataset.load("train.pkl")
 ```
 
 

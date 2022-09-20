@@ -1,3 +1,4 @@
+import pickle
 import warnings
 
 import torch
@@ -86,6 +87,15 @@ class MultiAnnotatorDataset(Dataset):
         """
         pass
 
+    def save(self, outfile):
+        with open(outfile, 'wb') as outF:
+            pickle.dump(self, outF)
+
+    @staticmethod
+    def load(infile):
+        with open(infile, 'rb') as inF:
+            return pickle.load(inF)
+
 
 class NonAggregatedDataset(MultiAnnotatorDataset):
     """
@@ -153,8 +163,8 @@ class SubjectiveLogicDataset(MultiAnnotatorDataset):
     """
     def preprocess(self):
         new_Y = []
-        print("preprocess")
-        for (ys, md) in tqdm(list(zip(self.Y, self.metadata))):
+        desc = "SubjectiveLogicDataset preprocess"
+        for (ys, md) in tqdm(list(zip(self.Y, self.metadata)), desc=desc):
             uncertainties = None
             if "certainty" in md[0].keys():
                 uncertainties = [1.0 - ann["certainty"] for ann in md]
@@ -171,7 +181,8 @@ class NonAggregatedSLDataset(SubjectiveLogicDataset):
         new_X = []
         new_Y = []
         new_metadata = []
-        for (x, ys, md) in zip(self.X, self.Y, self.metadata):
+        desc = "NonAggregatedSLDataset preprocess"
+        for (x, ys, md) in tqdm(list(zip(self.X, self.Y, self.metadata)), desc=desc):  # noqa
             # Encode labels as SLEs
             uncertainties = None
             if "certainty" in md[0].keys():
@@ -194,12 +205,20 @@ class CumulativeFusionDataset(SubjectiveLogicDataset):
     """
     Aggregate SLEs using uncertainty-maximized cumulative fusion.
     """
+    def preprocess(self):
+        # We roll the preprocessing into aggregate_labels
+        pass
+
     def aggregate_labels(self):
         new_Y = []
         new_metadata = []
-        print('agg')
-        for (sle_ys, md) in tqdm(list(zip(self.Y, self.metadata))):
-            fused = sle.fuse(sle_ys, max_uncertainty=True)
+        desc = "CumulativeFusionDataset aggregate_labels"
+        for (ys, md) in tqdm(list(zip(self.Y, self.metadata)), desc=desc):
+            uncertainties = None
+            if "certainty" in md[0].keys():
+                uncertainties = [1.0 - ann["certainty"] for ann in md]
+            encoded = sle.encode_labels(ys, uncertainties=uncertainties)
+            fused = sle.fuse(encoded).max_uncertainty()
             new_Y.append(fused)
             new_md = dict(md[0])
             new_md["annotator_id"] = "fuse"

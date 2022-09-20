@@ -33,14 +33,19 @@ def parse_args():
     parser.add_argument("--dataset-name", type=str, required=True,
                         help="""Dataset to load. See `src.dataloaders`
                                 for possible values.""")
-    parser.add_argument("--datadirs", type=str, nargs='+', required=True,
+    parser.add_argument("--datadirs", type=str, nargs='+', default=None,
                         help="""Path(s) to directory containing
                                 dataset files to load.""")
+    parser.add_argument("--data-pickle-dir", type=str, default=None,
+                        help="""If specified without --datadirs,
+                                load aggregated datasets from this directory.
+                                If specified *with* --datadirs,
+                                save aggregated datasets to this directory.""")
     parser.add_argument("--model-config", type=str, required=True,
                         help="Path to config.yaml.")
     parser.add_argument("--label-type", type=str, default="discrete",
                         choices=["discrete", "sle"])
-    parser.add_argument("--label-aggregation", type=str, default=None,
+    parser.add_argument("--label-aggregation", type=str, default="none",
                         choices=["vote", "soft", "fuse", "none"])
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--lr", type=float, default=0.001)
@@ -60,14 +65,29 @@ def main(args):
         args.label_aggregation = None
 
     # ======== Load the dataset ========
-    dataset = dataloaders.load(args.dataset_name, *args.datadirs,
-                               n_train=args.n_train,
-                               random_seed=args.random_seed)
-    # (Optionally) encode and aggregate the labels.
-    aggregator = get_data_aggregator(args.label_type, args.label_aggregation)
-    train = aggregator(**dataset.train)
-    val = aggregator(**dataset.train)
-    #val = aggregator(**dataset.val)
+    aggregator = get_data_aggregator(
+        args.label_type, args.label_aggregation)
+    if args.datadirs is not None:
+        dataset = dataloaders.load(args.dataset_name, *args.datadirs,
+                                   n_train=args.n_train,
+                                   random_seed=args.random_seed)
+        # (Optionally) encode and aggregate the labels.
+        train = aggregator(**dataset.train)
+        val = aggregator(**dataset.train)
+        #val = aggregator(**dataset.val)
+        if args.data_pickle_dir is not None:
+            os.makedirs(args.data_pickle_dir, exist_ok=False)
+            train_path = os.path.join(args.data_pickle_dir, "train.pkl")
+            train.save(train_path)
+            val_path = os.path.join(args.data_pickle_dir, "val.pkl")
+            val.save(val_path)
+    elif args.data_pickle_dir is not None:
+        train_path = os.path.join(args.data_pickle_dir, "train.pkl")
+        train = aggregator.load(train_path)
+        val_path = os.path.join(args.data_pickle_dir, "val.pkl")
+        val = aggregator.load(val_path)
+    else:
+        raise ValueError("You must specify one or both of --datadirs or --data-pickle-dir")  # noqa
 
     # ==== Get data ready for model training ====
     collate_fn = None
@@ -82,7 +102,14 @@ def main(args):
             collate_fn=collate_fn)
 
     if args.run_test is True:
-        test = aggregator(**dataset.test)
+        if args.datadirs is not None:
+            test = aggregator(**dataset.test)
+            if args.data_pickle_dir is not None:
+                test_path = os.path.join(args.data_pickle_dir, "test.pkl")
+                test = test.save(test_path)
+        else:
+            test_path = os.path.join(args.data_pickle_dir, "test.pkl")
+            test = aggregator.load(test_path)
         test_loader = torch.utils.data.DataLoader(
                 test, batch_size=args.batch_size, shuffle=False,
                 collate_fn=collate_fn)

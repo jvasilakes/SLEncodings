@@ -117,30 +117,26 @@ class SLBeta(D.Beta):
         new_d[pos_idxs] = torch.tensor(0.)
         return self.__class__(new_b, new_d, new_u, a=self.a, W=self.W)
 
-    def cumulative_fusion(self, other):
+    def cumulative_fusion(self, *others):
         """
         Aleatory Cumulative fusion operator. See SLT Book section 12.3.
         For Epistemic Cumulative fusion do
 
         Beta1.cumulative_fusion(Beta2).max_uncertainty()
+
+        Multiple cumulative fusions can be chained like so
+
+
+        ```
+        sle.fuse(Beta1, Beta2, ...,  BetaN)
+        ```
+        or
+
+        ```
+        Beta1.fuse(Beta2, ..., BetaN)
+        ```
         """
-        b_num = (self.b * other.u) + (other.b * self.u)
-        b_denom = (self.u + other.u) - (self.u * other.u)
-        b = b_num / b_denom
-
-        u_num = self.u * other.u
-        u_denom = b_denom
-        u = u_num / u_denom
-
-        d = 1 - (b + u)
-
-        a_num1 = (self.a * other.u) + (other.a * self.u)
-        a_num2 = (self.a + other.a) * (self.u * other.u)
-        a_denom = (self.u + other.u) - (2 * self.u * other.u)
-        a = (a_num1 - a_num2) / a_denom
-
-        new_dist = self.__class__(b, d, u, a=a, W=self.W)
-        return new_dist
+        return sle.fuse([self] + list(others))
 
     def trust_discount(self, trust_level=None, trust_opinion=None):
         """
@@ -232,10 +228,10 @@ class SLDirichlet(D.Dirichlet):
 
     def __eq__(self, other):
         return all([
-            (self.b == other.b).all(),
-            (self.u == other.u).all(),
-            (self.a == other.a).all(),
-            self.W == other.W]
+            torch.isclose(self.b, other.b).all(),
+            torch.isclose(self.u, other.u).all(),
+            torch.isclose(self.a, other.a).all(),
+            torch.isclose(self.W, other.W)]
         )
 
     @property
@@ -272,28 +268,14 @@ class SLDirichlet(D.Dirichlet):
         new_b = ps - self.a * new_u
         return self.__class__(new_b, new_u, a=self.a, W=self.W)
 
-    def cumulative_fusion(self, other):
+    def cumulative_fusion(self, *others):
         """
         Aleatory Cumulative fusion operator. See SLT Book 12.3
         For Epistemic Cumulative fusion do
 
         Beta1.cumulative_fusion(Beta2).max_uncertainty()
         """
-        b_num = (self.b * other.u) + (other.b * self.u)
-        b_denom = (self.u + other.u) - (self.u * other.u)
-        b = b_num / b_denom
-
-        u_num = self.u * other.u
-        u_denom = b_denom
-        u = u_num / u_denom
-
-        a_num1 = (self.a * other.u) + (other.a * self.u)
-        a_num2 = (self.a + other.a) * (self.u * other.u)
-        a_denom = (self.u + other.u) - (2 * self.u * other.u)
-        a = (a_num1 - a_num2) / a_denom
-
-        new_dist = self.__class__(b, u, a=a, W=self.W)
-        return new_dist
+        return sle.fuse([self] + list(others))
 
     def trust_discount(self, trust_level=None, trust_opinion=None):
         if trust_level is not None:
