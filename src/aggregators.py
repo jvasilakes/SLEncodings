@@ -148,7 +148,8 @@ class SoftVotingAggregatedDataset(MultiAnnotatorDataset):
         new_Y = []
         new_metadata = []
         for (ys, md) in zip(self.Y, self.metadata):
-            y = ys.sum(axis=0) / ys.size(0)
+            #y = ys.sum(axis=0) / ys.size(0)
+            y = ys.mean(axis=0)
             new_Y.append(y)
             new_md = dict(md[0])
             new_md["annotator_id"] = "soft-vote"

@@ -89,11 +89,15 @@ class CIFAR10DataLoader(object):
     labelfile: /path/to/cifar10s_t2clamp_redist10.json
     """
 
-    def __init__(self, datadir, n_train=-1, random_seed=0, load=True):
+    def __init__(self, datadir, n_train=-1, random_seed=0, load=True,
+                 train_idxs=None, val_idxs=None, test_idxs=None):
         self.datadir = datadir
         self.n_train = n_train
         self.random_seed = random_seed
-        self.base_train_test, self.base_val = self.load_cifar10base()
+        self.train_idxs = train_idxs
+        self.val_idxs = val_idxs
+        self.test_idxs = test_idxs
+        self.base_train, self.base_test, self.base_val = self.load_cifar10base()  # noqa
         if load is True:
             self.train, self.val, self.test = self.load()
 
@@ -103,39 +107,47 @@ class CIFAR10DataLoader(object):
         We only augment the training data.
         """
         transform_augment = transforms.Compose([
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomCrop(32, padding=4)])
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip()])
         transform_normalize = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+            transforms.Normalize((0.4914, 0.4822, 0.4465),
+                                 (0.2023, 0.1994, 0.2010))
         ])
-        transform = transforms.Compose(
+        transform_train = transforms.Compose(
             [transform_augment, transform_normalize])
-        base_train_test = torchvision.datasets.CIFAR10(
-            self.datadir, train=False, transform=transform)
+        base_train = torchvision.datasets.CIFAR10(
+            #self.datadir, train=False, transform=transform_train)
+            self.datadir, train=False, transform=transform_normalize)
+        base_test = torchvision.datasets.CIFAR10(
+            self.datadir, train=False, transform=transform_normalize)
         base_val = torchvision.datasets.CIFAR10(
             self.datadir, train=True, transform=transform_normalize)
-        return (base_train_test, base_val)
+        return (base_train, base_test, base_val)
 
     def load(self):
-        labs = [ex[1] for ex in self.base_train_test]
-        idxs = list(range(len(labs)))
-        train_i, test_i = train_test_split(
-            idxs, train_size=7000, shuffle=True, stratify=labs,
-            random_state=self.random_seed)
+        labs = [ex[1] for ex in self.base_train]
 
-        val_labs = [ex[1] for ex in self.base_val]
-        val_idxs = list(range(len(val_labs)))
-        val_i, _ = train_test_split(
-            val_idxs, train_size=3000, stratify=val_labs,
-            random_state=self.random_seed)
+        if self.train_idxs is None:
+            idxs = list(range(len(labs)))
+            self.train_idxs, self.test_idxs = train_test_split(
+                idxs, train_size=7000, shuffle=True, stratify=labs,
+                random_state=self.random_seed)
 
+        if self.val_idxs is None:
+            val_labs = [ex[1] for ex in self.base_val]
+            val_idxs = list(range(len(val_labs)))
+            self.val_idxs, _ = train_test_split(
+                val_idxs, train_size=3000, shuffle=False, stratify=val_labs,
+                random_state=self.random_seed)
+
+        # Optionally load a subset of the training data.
         if self.n_train > 0:
-            np.random.shuffle(train_i)
-            train_i = train_i[:self.n_train]
-        train = self.get_data(train_i, self.base_train_test)
-        val = self.get_data(val_i, self.base_val)
-        test = self.get_data(test_i, self.base_train_test)
+            np.random.shuffle(self.train_idxs)
+            self.train_idxs = self.train_idxs[:self.n_train]
+        train = self.get_data(self.train_idxs, self.base_train)
+        val = self.get_data(self.val_idxs, self.base_val)
+        test = self.get_data(self.test_idxs, self.base_test)
         return (train, val, test)
 
     def get_data(self, indices, images):
@@ -159,9 +171,12 @@ class CIFAR10SDataLoader(CIFAR10DataLoader):
     labelfile: /path/to/cifar10s_t2clamp_redist10.json
     """
 
-    def __init__(self, datadir, labelfile, n_train=-1, random_seed=0):
+    def __init__(self, datadir, labelfile, n_train=-1, random_seed=0,
+                 train_idxs=None, val_idxs=None, test_idxs=None):
         super().__init__(datadir, n_train=n_train,
-                         random_seed=random_seed, load=False)
+                         random_seed=random_seed, load=False,
+                         train_idxs=train_idxs, val_idxs=val_idxs,
+                         test_idxs=test_idxs)
         self.labelfile = labelfile
         self.train, self.val, self.test = self.load()
 
@@ -197,9 +212,12 @@ class CIFAR10HDataLoader(CIFAR10DataLoader):
     labelfile: /path/to/cifar10s_t2clamp_redist10.json
     """
 
-    def __init__(self, datadir, labelfile, n_train=-1, random_seed=0):
+    def __init__(self, datadir, labelfile, n_train=-1, random_seed=0,
+                 train_idxs=None, val_idxs=None, test_idxs=None):
         super().__init__(datadir, n_train=n_train,
-                         random_seed=random_seed, load=False)
+                         random_seed=random_seed, load=False,
+                         train_idxs=train_idxs, val_idxs=val_idxs,
+                         test_idxs=test_idxs)
         self.labelfile = labelfile
         annotations = pd.read_csv(self.labelfile)
         self.labels_by_index = dict(

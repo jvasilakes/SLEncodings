@@ -5,10 +5,11 @@ from .distributions import SLBeta, SLDirichlet
 
 class SLELayer(nn.Module):
 
-    def __init__(self, insize, outsize):
+    def __init__(self, insize, outsize, max_uncertainty=False):
         super().__init__()
         self.insize = insize
         self.outsize = outsize
+        self.max_uncertainty = max_uncertainty
         self.params_net = nn.Sequential(
             nn.Linear(self.insize, self.outsize + 1),
             nn.Softmax(dim=-1))
@@ -18,10 +19,10 @@ class SLELayer(nn.Module):
             self.target_cls = SLDirichlet
 
     def __repr__(self):
-        return f"SLELayer({self.insize}, {self.outsize})"
+        return f"SLELayer({self.insize}, {self.outsize}, max_uncertainty={self.max_uncertainty})"  # noqa
 
     def __str__(self):
-        return f"SLELayer({self.insize}, {self.outsize})"
+        return f"SLELayer({self.insize}, {self.outsize}, max_uncertainty={self.max_uncertainty})"  # noqa
 
     def forward(self, inputs):
         params = self.params_net(inputs)
@@ -31,4 +32,7 @@ class SLELayer(nn.Module):
             args = [b.flatten(), d.flatten(), uncs.flatten()]
         else:
             args = [beliefs, uncs]
-        return self.target_cls(*args)
+        dist = self.target_cls(*args)
+        if self.max_uncertainty is True:
+            dist = dist.max_uncertainty()
+        return dist

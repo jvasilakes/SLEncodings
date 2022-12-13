@@ -31,7 +31,10 @@ def main(args):
     dl = dataloaders.load(args.dataset_name, *args.datadirs)
     data = aggregators.MultiAnnotatorDataset(**dl.train)
     # data.X is a list of tensors
-    X = torch.vstack(data.X).numpy()
+    X = data.X
+    if X[0].dim() > 1:
+        X = [x.flatten() for x in X]
+    X = torch.vstack(X).numpy()
     if X.shape[1] > 2:
         X = TSNE(n_components=2).fit_transform(X)
 
@@ -62,7 +65,7 @@ def main(args):
 
     ax.contourf(xx, yy, z, cmap="Blues")
     # ax.scatter(X0, X1, c=y, cmap="spring", s=20, alpha=0.8, edgecolor='k')
-    ax.scatter(X0, X1, c=z_points, cmap="spring", s=20, alpha=0.8, edgecolor='k')
+    ax.scatter(X0, X1, c=z_points, cmap="spring", s=20, alpha=0.8, edgecolor='k')  # noqa
     ax.set_xticks([])
     ax.set_yticks([])
 

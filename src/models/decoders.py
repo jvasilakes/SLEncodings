@@ -83,5 +83,5 @@ class SLEDecoder(nn.Module):
         # Reverse KL
         loss = 1e-7 * self._loss_fn(dists, target).mean()
         # Forward KL
-        # loss += 0.01 * self._loss_fn(target, dists).mean()
+        # loss = 0.01 * self._loss_fn(target, dists).sum()
         return loss

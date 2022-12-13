@@ -1,6 +1,7 @@
 import torch
 from .distributions import SLBeta, SLDirichlet
 from .layers import SLELayer  # noqa, make available at package level
+from .collate import sle_default_collate
 
 
 # Smoothing one-hot labels so KL-divergence is okay for optimization.
@@ -33,7 +34,7 @@ def encode_betas(ys, uncertainties=None, priors=None):
     else:
         uncs = torch.as_tensor(uncertainties, dtype=torch.float32)
         uncs = uncs.squeeze()
-        uncs[torch.isclose(uncs, 0)] = EPS  # Smoothing dogmatic opinions
+        uncs[torch.isclose(uncs, torch.tensor(0.))] = EPS  # Smoothing dogmatic opinions  # noqa
     beliefs = ys - (uncs * ys)
     disbeliefs = 1. - (beliefs + uncs)
     if priors is None:
@@ -52,7 +53,7 @@ def encode_dirichlets(ys, uncertainties=None, priors=None):
         uncs = torch.as_tensor(uncertainties, dtype=torch.float32)
         if uncs.dim() == 1:
             uncs = uncs.unsqueeze(1)
-        uncs[torch.isclose(uncs, 0)] = EPS  # Smoothing dogmatic opinions
+        uncs[torch.isclose(uncs, torch.tensor(0.))] = EPS  # Smoothing dogmatic opinions  # noqa
     beliefs = ys - (uncs * ys)
     if priors is None:
         priors = torch.ones(ys.size(), dtype=torch.float32)

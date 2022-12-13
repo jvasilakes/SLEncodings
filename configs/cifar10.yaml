@@ -1,5 +1,5 @@
 encoder:
-  n: 3
+  n: 7
   res_option: 'A'
   use_dropout: false
 decoder:

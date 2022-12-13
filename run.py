@@ -17,15 +17,6 @@ from sle import collate, SLBeta, SLDirichlet
 DEVICE = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
-def set_seed(seed):
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-    torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.deterministic = True
-
-
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--outdir", type=str, required=True,
@@ -36,6 +27,9 @@ def parse_args():
     parser.add_argument("--datadirs", type=str, nargs='+', default=None,
                         help="""Path(s) to directory containing
                                 dataset files to load.""")
+    parser.add_argument("--split-indices-dir", type=str, default=None,
+                        help="""Path to dir containing
+                                {train,val,test}_indices.npy files.""")
     parser.add_argument("--data-pickle-dir", type=str, default=None,
                         help="""If specified without --datadirs,
                                 load aggregated datasets from this directory.
@@ -59,22 +53,44 @@ def parse_args():
     return parser.parse_args()
 
 
+def set_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+
+
+def load_indices(dirpath):
+    train_idxs = np.load(os.path.join(dirpath, "train_indices.npy"))
+    val_idxs = np.load(os.path.join(dirpath, "val_indices.npy"))
+    test_idxs = np.load(os.path.join(dirpath, "test_indices.npy"))
+    return train_idxs, val_idxs, test_idxs
+
+
 def main(args):
-    set_seed(args.random_seed)
     if args.label_aggregation == "none":
         args.label_aggregation = None
 
     # ======== Load the dataset ========
+    set_seed(args.random_seed)
     aggregator = get_data_aggregator(
         args.label_type, args.label_aggregation)
     if args.datadirs is not None:
+        train_idxs = val_idxs = test_idxs = None
+        if args.split_indices_dir is not None:
+            train_idxs, val_idxs, test_idxs = load_indices(args.split_indices_dir)  # noqa
         dataset = dataloaders.load(args.dataset_name, *args.datadirs,
                                    n_train=args.n_train,
+                                   train_idxs=train_idxs,
+                                   val_idxs=val_idxs,
+                                   test_idxs=test_idxs,
                                    random_seed=args.random_seed)
         # (Optionally) encode and aggregate the labels.
         train = aggregator(**dataset.train)
-        val = aggregator(**dataset.train)
-        #val = aggregator(**dataset.val)
+        val = aggregator(**dataset.val)
+        # val = aggregator(**dataset.train); warnings.warn("Validating on train set!")  # noqa
         if args.data_pickle_dir is not None:
             os.makedirs(args.data_pickle_dir, exist_ok=False)
             train_path = os.path.join(args.data_pickle_dir, "train.pkl")
@@ -95,10 +111,10 @@ def main(args):
         collate_fn = collate.sle_default_collate
 
     train_loader = torch.utils.data.DataLoader(
-            train, batch_size=args.batch_size, shuffle=False,
+            train, batch_size=args.batch_size, shuffle=True,
             collate_fn=collate_fn)
     val_loader = torch.utils.data.DataLoader(
-            val, batch_size=args.batch_size, shuffle=False,
+            val, batch_size=100, shuffle=False,
             collate_fn=collate_fn)
 
     if args.run_test is True:
@@ -106,7 +122,7 @@ def main(args):
             test = aggregator(**dataset.test)
             if args.data_pickle_dir is not None:
                 test_path = os.path.join(args.data_pickle_dir, "test.pkl")
-                test = test.save(test_path)
+                test.save(test_path)
         else:
             test_path = os.path.join(args.data_pickle_dir, "test.pkl")
             test = aggregator.load(test_path)
@@ -119,9 +135,12 @@ def main(args):
     # ======= Load the model ========
     with open(args.model_config) as config_file:
         model_args = yaml.safe_load(config_file)
+    print("Model:")
+    print(json.dumps(model_args, indent=2))
     # synthetic: linear network
     # cifar10: resnet
     # etc.
+    set_seed(args.random_seed)
     encoder = models.load_encoder_by_dataset_name(
         args.dataset_name, **model_args["encoder"])
     # discrete: linear
@@ -142,31 +161,37 @@ def main(args):
         lr_scheduler = sch_cls(optimizer, **sch_kwargs)
 
     print("Optimizer: ", optimizer)
-    print("LR Scheduler: ", lr_scheduler)
+    print("LR Scheduler: ", lr_scheduler.milestones, lr_scheduler.gamma)
     print("# Params: ", get_param_count(model))
 
     save_cmdline_args(args, args.outdir)
     model_ckpt_dir = os.path.join(args.outdir, "model_checkpoints")
     model_outputs_dir = os.path.join(args.outdir, "model_outputs")
-    os.makedirs(model_ckpt_dir)
-    os.makedirs(model_outputs_dir)
+    os.makedirs(model_ckpt_dir, exist_ok=True)
+    os.makedirs(model_outputs_dir, exist_ok=True)
 
     # ======= Run training =======
     train_losses = {}
     val_losses = {}
-    best_val_loss = torch.inf
+    # best_val_loss = torch.inf
+    best_val_acc = 0.0
     for epoch in range(args.epochs):
-        train_loss = run_train(epoch, model, train_loader, optimizer)
+        set_seed(args.random_seed)
+        train_acc, train_loss = run_train(
+            epoch, model, train_loader, optimizer)
         train_losses[epoch] = train_loss
 
         if (epoch+1) % args.val_freq == 0:
             val_acc, val_loss = run_validate(epoch, model, val_loader)
             val_losses[epoch] = val_loss
             print(f"(Val {epoch}) Accuracy: {val_acc:.4f}, Loss: {val_loss:.4f}")  # noqa
-            if val_loss < best_val_loss:
-                print(f"Val loss improved {best_val_loss:.4f} -> {val_loss:.4f}")  # noqa
+            # if val_loss < best_val_loss:
+            #     print(f"Val loss improved {best_val_loss:.4f} -> {val_loss:.4f}")  # noqa
+            #     best_val_loss = val_loss
+            if val_acc > best_val_acc:
                 print("Saving new best model.")
-                best_val_loss = val_loss
+                print(f"Val accuracy improved {best_val_acc:.4f} -> {val_acc:.4f}")  # noqa
+                best_val_acc = val_acc
                 save_model(model, epoch=epoch, outdir=model_ckpt_dir)
                 save_model_outputs(model, val_loader, epoch=epoch,
                                    outdir=model_outputs_dir, split="val")
@@ -191,6 +216,8 @@ def main(args):
 def run_train(epoch, model, dataloader, optimizer, lr_scheduler=None):
     model.train()
     losses = []
+    correct_preds = []
+
     pbar = tqdm(dataloader)
     for (n, batch) in enumerate(dataloader):
         batch = send_to_device(batch, DEVICE)
@@ -199,38 +226,44 @@ def run_train(epoch, model, dataloader, optimizer, lr_scheduler=None):
 
         optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         # plot_grad_flow(model.named_parameters())
         optimizer.step()
         if lr_scheduler is not None:
             lr_scheduler.step()
         losses.append(loss.item())
+
+        with torch.no_grad():
+            preds = model.predict(output).detach().cpu()
+        golds = torch.as_tensor([gold.argmax() for gold in batch["gold_y"]])
+        correct_preds.extend(preds == golds)
+
         if n % 10 == 0:
             avg_loss = np.mean(losses)
-            pbar.set_description(f"({epoch}) Avg. Train Loss: {avg_loss:.4f}")  # noqa
+            acc = sum(correct_preds) / len(correct_preds)
+            desc = f"({epoch}) Avg. Train Loss: {avg_loss:.4f}, Acc: {acc:.4f}"
+            pbar.set_description(desc)
         pbar.update()
-    return np.mean(losses)
+
+    accuracy = sum(correct_preds) / len(correct_preds)
+    return accuracy, np.mean(losses)
 
 
 def run_validate(epoch, model, dataloader):
     model.eval()
     losses = []
-    all_preds = []
-    all_golds = []
+    correct_preds = []
 
     for (n, batch) in enumerate(dataloader):
         batch = send_to_device(batch, DEVICE)
         output = model(batch)
         loss = model.compute_loss(output, batch)
         losses.append(loss.item())
-        preds = model.predict(output)
-        all_preds.extend(preds.detach().cpu().tolist())
-        all_golds.extend([gold.argmax().cpu().item()
-                          for gold in batch["gold_y"]])
+        preds = model.predict(output).detach().cpu()
+        golds = torch.as_tensor([gold.argmax() for gold in batch["gold_y"]])
+        correct_preds.extend(preds == golds)
 
-    all_preds = torch.as_tensor(all_preds)
-    all_golds = torch.as_tensor(all_golds)
-    accuracy = (all_preds == all_golds).sum() / len(all_golds)
+    accuracy = sum(correct_preds) / len(correct_preds)
     return accuracy, np.mean(losses)
 
 

@@ -35,7 +35,7 @@ class LinearEncoder(nn.Module):
 @register_encoder("cifar10", "cifar10s", "cifar10h")
 class ResNetEncoder(nn.Module):
 
-    def __init__(self, n=3, res_option='A', use_dropout=False):
+    def __init__(self, n=7, res_option='A', use_dropout=False):
         super().__init__()
         self.res_option = res_option
         self.use_dropout = use_dropout
