@@ -90,13 +90,15 @@ class CIFAR10DataLoader(object):
     """
 
     def __init__(self, datadir, n_train=-1, random_seed=0, load=True,
-                 train_idxs=None, val_idxs=None, test_idxs=None):
+                 train_idxs=None, val_idxs=None, test_idxs=None,
+                 augment=True):
         self.datadir = datadir
         self.n_train = n_train
         self.random_seed = random_seed
         self.train_idxs = train_idxs
         self.val_idxs = val_idxs
         self.test_idxs = test_idxs
+        self.augment = augment
         self.base_train, self.base_test, self.base_val = self.load_cifar10base()  # noqa
         if load is True:
             self.train, self.val, self.test = self.load()
@@ -114,11 +116,13 @@ class CIFAR10DataLoader(object):
             transforms.Normalize((0.4914, 0.4822, 0.4465),
                                  (0.2023, 0.1994, 0.2010))
         ])
-        transform_train = transforms.Compose(
-            [transform_augment, transform_normalize])
+        if self.augment is True:
+            transform_train = transforms.Compose(
+                [transform_augment, transform_normalize])
+        else:
+            transform_train = transform_normalize
         base_train = torchvision.datasets.CIFAR10(
-            #self.datadir, train=False, transform=transform_train)
-            self.datadir, train=False, transform=transform_normalize)
+            self.datadir, train=False, transform=transform_train)
         base_test = torchvision.datasets.CIFAR10(
             self.datadir, train=False, transform=transform_normalize)
         base_val = torchvision.datasets.CIFAR10(
@@ -173,10 +177,11 @@ class CIFAR10SDataLoader(CIFAR10DataLoader):
 
     def __init__(self, datadir, labelfile, n_train=-1, random_seed=0,
                  train_idxs=None, val_idxs=None, test_idxs=None):
+        # No data augmentation works better on CIFAR10s.
         super().__init__(datadir, n_train=n_train,
                          random_seed=random_seed, load=False,
                          train_idxs=train_idxs, val_idxs=val_idxs,
-                         test_idxs=test_idxs)
+                         test_idxs=test_idxs, augment=False)
         self.labelfile = labelfile
         self.train, self.val, self.test = self.load()
 
@@ -196,7 +201,9 @@ class CIFAR10SDataLoader(CIFAR10DataLoader):
             gold_y.append(gold_lab)
             if i in labels_by_img.keys():
                 # If this example is in CIFAR10S, use the soft labels
-                labs = np.array(labels_by_img[i])
+                no_na_labs = [lab for lab in labels_by_img[i]
+                              if not np.isnan(lab).any()]
+                labs = np.array(no_na_labs)
             else:
                 # Otherwise use the gold label
                 labs = np.array([gold_lab])
@@ -217,7 +224,7 @@ class CIFAR10HDataLoader(CIFAR10DataLoader):
         super().__init__(datadir, n_train=n_train,
                          random_seed=random_seed, load=False,
                          train_idxs=train_idxs, val_idxs=val_idxs,
-                         test_idxs=test_idxs)
+                         test_idxs=test_idxs, augment=True)
         self.labelfile = labelfile
         annotations = pd.read_csv(self.labelfile)
         self.labels_by_index = dict(

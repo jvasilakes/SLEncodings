@@ -110,6 +110,7 @@ def main(args):
     if args.label_type == "sle":
         collate_fn = collate.sle_default_collate
 
+    set_seed(args.random_seed)
     train_loader = torch.utils.data.DataLoader(
             train, batch_size=args.batch_size, shuffle=True,
             collate_fn=collate_fn)
@@ -175,11 +176,13 @@ def main(args):
     val_losses = {}
     # best_val_loss = torch.inf
     best_val_acc = 0.0
+    set_seed(args.random_seed)
     for epoch in range(args.epochs):
-        set_seed(args.random_seed)
         train_acc, train_loss = run_train(
             epoch, model, train_loader, optimizer)
         train_losses[epoch] = train_loss
+        if lr_scheduler is not None:
+            lr_scheduler.step()
 
         if (epoch+1) % args.val_freq == 0:
             val_acc, val_loss = run_validate(epoch, model, val_loader)
@@ -213,7 +216,7 @@ def main(args):
                            outdir=model_outputs_dir, split="test")
 
 
-def run_train(epoch, model, dataloader, optimizer, lr_scheduler=None):
+def run_train(epoch, model, dataloader, optimizer):
     model.train()
     losses = []
     correct_preds = []
@@ -229,8 +232,6 @@ def run_train(epoch, model, dataloader, optimizer, lr_scheduler=None):
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         # plot_grad_flow(model.named_parameters())
         optimizer.step()
-        if lr_scheduler is not None:
-            lr_scheduler.step()
         losses.append(loss.item())
 
         with torch.no_grad():
