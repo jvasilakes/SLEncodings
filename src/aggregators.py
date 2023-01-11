@@ -70,7 +70,11 @@ class MultiAnnotatorDataset(Dataset):
 
     def to_tensor(self):
         for i in range(len(self.Y)):
-            self.X[i] = torch.as_tensor(self.X[i], dtype=torch.float32)
+            try:
+                self.X[i] = torch.as_tensor(self.X[i], dtype=torch.float32)
+            except TypeError:
+                # E.g., output of BERT tokenizer
+                pass
             self.Y[i] = torch.as_tensor(self.Y[i], dtype=torch.float32)
             self.gold_y[i] = torch.as_tensor(self.gold_y[i],
                                              dtype=torch.float32)
