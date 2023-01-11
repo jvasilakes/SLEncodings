@@ -19,9 +19,9 @@ def encode_labels(ys, uncertainties=None, priors=None):
         raise ValueError("ys must sum to 1 per annotation.")
 
     label_dim = ys.shape[1]
-    if label_dim in [1, 2]:
+    if label_dim == 1:
         dists = encode_betas(ys, uncertainties, priors)
-    elif label_dim > 2:
+    elif label_dim >= 2:
         dists = encode_dirichlets(ys, uncertainties, priors)
     else:
         raise ValueError(f"Unsupported number of labels {label_dim}")
