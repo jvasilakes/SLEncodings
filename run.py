@@ -48,7 +48,10 @@ def parse_args():
                         help="Run validation every val-freq epochs.")
     parser.add_argument("--n-train", type=int, default=-1,
                         help="Number of training examples to load.")
-    parser.add_argument("--run-test", default=False, action="store_true")
+    parser.add_argument("--no-train", default=False, action="store_true",
+                        help="Don't run training. Default False (run train)")
+    parser.add_argument("--run-test", default=False, action="store_true",
+                        help="Run testing. Default True.")
     parser.add_argument("--random-seed", type=int, default=0)
     return parser.parse_args()
 
@@ -70,6 +73,8 @@ def load_indices(dirpath):
 
 
 def main(args):
+    run_train = not args.no_train
+
     if args.label_aggregation == "none":
         args.label_aggregation = None
 
@@ -88,20 +93,20 @@ def main(args):
                                    test_idxs=test_idxs,
                                    random_seed=args.random_seed)
         # (Optionally) encode and aggregate the labels.
-        train = aggregator(**dataset.train)
-        val = aggregator(**dataset.val)
+        trainset = aggregator(**dataset.train)
+        valset = aggregator(**dataset.val)
         # val = aggregator(**dataset.train); warnings.warn("Validating on train set!")  # noqa
         if args.data_pickle_dir is not None:
             os.makedirs(args.data_pickle_dir, exist_ok=False)
             train_path = os.path.join(args.data_pickle_dir, "train.pkl")
-            train.save(train_path)
+            trainset.save(train_path)
             val_path = os.path.join(args.data_pickle_dir, "val.pkl")
-            val.save(val_path)
+            valset.save(val_path)
     elif args.data_pickle_dir is not None:
         train_path = os.path.join(args.data_pickle_dir, "train.pkl")
-        train = aggregator.load(train_path)
+        trainset = aggregator.load(train_path)
         val_path = os.path.join(args.data_pickle_dir, "val.pkl")
-        val = aggregator.load(val_path)
+        valset = aggregator.load(val_path)
     else:
         raise ValueError("You must specify one or both of --datadirs or --data-pickle-dir")  # noqa
 
@@ -112,26 +117,27 @@ def main(args):
 
     set_seed(args.random_seed)
     train_loader = torch.utils.data.DataLoader(
-            train, batch_size=args.batch_size, shuffle=True,
+            trainset, batch_size=args.batch_size, shuffle=True,
             collate_fn=collate_fn)
     val_loader = torch.utils.data.DataLoader(
-            val, batch_size=100, shuffle=False,
+            valset, batch_size=100, shuffle=False,
             collate_fn=collate_fn)
 
     if args.run_test is True:
         if args.datadirs is not None:
-            test = aggregator(**dataset.test)
+            testset = aggregator(**dataset.test)
             if args.data_pickle_dir is not None:
                 test_path = os.path.join(args.data_pickle_dir, "test.pkl")
-                test.save(test_path)
+                testset.save(test_path)
         else:
             test_path = os.path.join(args.data_pickle_dir, "test.pkl")
-            test = aggregator.load(test_path)
+            testset = aggregator.load(test_path)
         test_loader = torch.utils.data.DataLoader(
-                test, batch_size=args.batch_size, shuffle=False,
+                testset, batch_size=args.batch_size, shuffle=False,
                 collate_fn=collate_fn)
 
-    os.makedirs(args.outdir, exist_ok=False)
+    if run_train is True:
+        os.makedirs(args.outdir, exist_ok=False)
 
     # ======= Load the model ========
     with open(args.model_config) as config_file:
@@ -172,51 +178,53 @@ def main(args):
     os.makedirs(model_outputs_dir, exist_ok=True)
 
     # ======= Run training =======
-    train_losses = {}
-    val_losses = {}
-    # best_val_loss = torch.inf
-    best_val_acc = 0.0
-    set_seed(args.random_seed)
-    for epoch in range(args.epochs):
-        train_acc, train_loss = run_train(
-            epoch, model, train_loader, optimizer)
-        train_losses[epoch] = train_loss
-        if lr_scheduler is not None:
-            lr_scheduler.step()
+    if run_train is True:
+        train_losses = {}
+        val_losses = {}
+        # best_val_loss = torch.inf
+        best_val_acc = 0.0
+        set_seed(args.random_seed)
+        for epoch in range(args.epochs):
+            train_acc, train_loss = train(
+                epoch, model, train_loader, optimizer)
+            train_losses[epoch] = train_loss
+            if lr_scheduler is not None:
+                lr_scheduler.step()
 
-        if (epoch+1) % args.val_freq == 0:
-            val_acc, val_loss = run_validate(epoch, model, val_loader)
-            val_losses[epoch] = val_loss
-            print(f"(Val {epoch}) Accuracy: {val_acc:.4f}, Loss: {val_loss:.4f}")  # noqa
-            # if val_loss < best_val_loss:
-            #     print(f"Val loss improved {best_val_loss:.4f} -> {val_loss:.4f}")  # noqa
-            #     best_val_loss = val_loss
-            if val_acc > best_val_acc:
-                print("Saving new best model.")
-                print(f"Val accuracy improved {best_val_acc:.4f} -> {val_acc:.4f}")  # noqa
-                best_val_acc = val_acc
-                save_model(model, epoch=epoch, outdir=model_ckpt_dir)
-                save_model_outputs(model, val_loader, epoch=epoch,
-                                   outdir=model_outputs_dir, split="val")
+            if (epoch+1) % args.val_freq == 0:
+                val_acc, val_loss = validate(epoch, model, val_loader)
+                val_losses[epoch] = val_loss
+                print(f"(Val {epoch}) Accuracy: {val_acc:.4f}, Loss: {val_loss:.4f}")  # noqa
+                # if val_loss < best_val_loss:
+                #     print(f"Val loss improved {best_val_loss:.4f} -> {val_loss:.4f}")  # noqa
+                #     best_val_loss = val_loss
+                if val_acc > best_val_acc:
+                    print("Saving new best model.")
+                    print(f"Val accuracy improved {best_val_acc:.4f} -> {val_acc:.4f}")  # noqa
+                    best_val_acc = val_acc
+                    save_model(model, epoch=epoch, outdir=model_ckpt_dir)
+                    save_model_outputs(model, val_loader, epoch=epoch,
+                                       outdir=model_outputs_dir, split="val")
 
-    # ====== Save outputs and run testing ======
-    losslog = os.path.join(args.outdir, "train_losses.json")
-    with open(losslog, 'w') as outF:
-        json.dump(train_losses, outF)
-    losslog = os.path.join(args.outdir, "val_losses.json")
-    with open(losslog, 'w') as outF:
-        json.dump(val_losses, outF)
+        # ====== Save outputs and run testing ======
+        losslog = os.path.join(args.outdir, "train_losses.json")
+        with open(losslog, 'w') as outF:
+            json.dump(train_losses, outF)
+        losslog = os.path.join(args.outdir, "val_losses.json")
+        with open(losslog, 'w') as outF:
+            json.dump(val_losses, outF)
 
     if args.run_test is True:
         print("Loading best performing model on validation set...")
-        model = load_model(model_ckpt_dir, epoch=-1)
-        test_acc, test_loss = run_validate(epoch, model, test_loader)
+        epoch = -1
+        model = load_model(model_ckpt_dir, epoch=epoch)
+        test_acc, test_loss = validate(epoch, model, test_loader)
         print(f"(Test) Accuracy: {test_acc:.4f}, Loss: {test_loss:.4f}")
         save_model_outputs(model, test_loader, epoch=epoch,
                            outdir=model_outputs_dir, split="test")
 
 
-def run_train(epoch, model, dataloader, optimizer):
+def train(epoch, model, dataloader, optimizer):
     model.train()
     losses = []
     correct_preds = []
@@ -250,7 +258,7 @@ def run_train(epoch, model, dataloader, optimizer):
     return accuracy, np.mean(losses)
 
 
-def run_validate(epoch, model, dataloader):
+def validate(epoch, model, dataloader):
     model.eval()
     losses = []
     correct_preds = []
