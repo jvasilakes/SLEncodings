@@ -80,8 +80,6 @@ class SLEDecoder(nn.Module):
 
     def compute_loss(self, dists, batch):
         target = batch['Y']
-        # Reverse KL
-        loss = 1e-7 * self._loss_fn(dists, target).mean()
         # Forward KL
-        # loss = 0.01 * self._loss_fn(target, dists).sum()
+        loss = self._loss_fn(dists, target).mean()
         return loss
