@@ -10,7 +10,7 @@ import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
-from src import dataloaders, aggregators, models
+from src import data, aggregators, models
 from sle import collate, SLBeta, SLDirichlet
 
 
@@ -22,7 +22,7 @@ def parse_args():
     parser.add_argument("--outdir", type=str, required=True,
                         help="Where to save log files.")
     parser.add_argument("--dataset-name", type=str, required=True,
-                        help="""Dataset to load. See `src.dataloaders`
+                        help="""Dataset to load. See `src.data`
                                 for possible values.""")
     parser.add_argument("--datadirs", type=str, nargs='+', default=None,
                         help="""Path(s) to directory containing
@@ -86,7 +86,7 @@ def main(args):
         train_idxs = val_idxs = test_idxs = None
         if args.split_indices_dir is not None:
             train_idxs, val_idxs, test_idxs = load_indices(args.split_indices_dir)  # noqa
-        dataset = dataloaders.load(args.dataset_name, *args.datadirs,
+        dataset = data.load(args.dataset_name, *args.datadirs,
                                    n_train=args.n_train,
                                    train_idxs=train_idxs,
                                    val_idxs=val_idxs,
