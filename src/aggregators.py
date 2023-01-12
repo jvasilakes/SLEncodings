@@ -112,13 +112,11 @@ class NonAggregatedDataset(MultiAnnotatorDataset):
         new_metadata = []
         zipped = zip(self.X, self.Y, self.gold_y, self.metadata)
         for (x, ys, gold, md) in zipped:
-            tileshape = torch.ones(len(x.shape)+1, dtype=int)
-            tileshape[0] = len(ys)
-            xs = torch.as_tensor(np.tile(x, tileshape), dtype=torch.float32)
-            new_X.extend(xs)
-            new_Y.extend(ys)
-            new_gold.extend([gold for _ in range(len(ys))])
-            new_metadata.extend(md)
+            for (i, y) in enumerate(ys):
+                new_X.append(x)
+                new_Y.append(y)
+                new_gold.append(gold)
+                new_metadata.append(md[i])
         self.X = new_X
         self.Y = new_Y
         self.gold_y = new_gold
@@ -152,7 +150,6 @@ class SoftVotingAggregatedDataset(MultiAnnotatorDataset):
         new_Y = []
         new_metadata = []
         for (ys, md) in zip(self.Y, self.metadata):
-            #y = ys.sum(axis=0) / ys.size(0)
             y = ys.mean(axis=0)
             new_Y.append(y)
             new_md = dict(md[0])
@@ -196,11 +193,12 @@ class NonAggregatedSLDataset(SubjectiveLogicDataset):
             new_Y.extend(ys_enc)
 
             # Duplicate the inputs
-            tileshape = torch.ones(len(x.shape)+1, dtype=int)
-            tileshape[0] = len(ys)
-            xs = torch.as_tensor(np.tile(x, tileshape), dtype=torch.float32)
-            new_X.extend(xs)
-            new_metadata.extend(md)
+            #tileshape = torch.ones(len(x.shape)+1, dtype=int)
+            #tileshape[0] = len(ys)
+            #xs = torch.as_tensor(np.tile(x, tileshape), dtype=torch.float32)
+            for i in range(len(ys)):
+                new_X.append(x)
+                new_metadata.append(md[i])
         self.X = new_X
         self.Y = new_Y
         self.metadata = new_metadata
