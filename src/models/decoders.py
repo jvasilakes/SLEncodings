@@ -28,7 +28,7 @@ class LinearDecoder(nn.Module):
             self._loss_fn = nn.BCELoss()
         else:
             self.activation = nn.Softmax(dim=-1)
-            self._loss_fn = nn.CrossEntropyLoss()
+            self._loss_fn = nn.CrossEntropyLoss(reduction="mean")
 
         self.predictor = nn.Linear(self.hidden_size, self.output_size)
 

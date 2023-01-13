@@ -2,6 +2,7 @@ import os
 from glob import glob
 from collections import defaultdict
 
+import torch
 import numpy as np
 import pandas as pd
 import pandas.api.types as ptypes
@@ -21,12 +22,14 @@ class MREDataLoader(object):
 
     def __init__(self, datadir, split_num=0,
                  bert_name_or_path="bert-base-uncased",
-                 max_seq_len=200):
+                 max_seq_len=200, n_train=-1, random_seed=0,
+                 train_idxs=None, val_idxs=None, test_idxs=None):
         self.datadir = datadir
         assert split_num < 5
         self.split_num = split_num
         self.bert_name_or_path = bert_name_or_path
         self.max_seq_len = max_seq_len
+        self.n_train = n_train
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.bert_name_or_path,
                                                        use_fast=True)
@@ -60,14 +63,19 @@ class MREDataLoader(object):
             metadata.append(this_metadata)
 
             enc = self.tokenizer(datum.sentence, max_length=self.max_seq_len,
-                                 padding="max_length", return_tensors="pt")
+                                 padding="max_length", truncation=True)
+            # This feels dumb but the 'return_tensors="pt"' argument to the
+            # tokenizer adds a batch dimension, which is also added by the
+            # data collator in DataLoader, so there ends up being too many
+            # dimensions. So we manually convert the encodings to tensors.
+            enc = {key: torch.tensor(val) for (key, val) in enc.items()}
             X.append(enc)
             # Convert from [-1., 1.] to [0, 1]
             lab = int(datum.expert == 1.0)
             gold_y.append(onehot(lab, 2))
 
         # Split data according to self.split_num
-        train, val = self._split_data(X, Y, gold_y, metadata)
+        train, val = self._split_data(X, Y, gold_y, metadata, self.n_train)
         return train, val
 
     def _load_gold_data(self, gold_file):
@@ -87,12 +95,14 @@ class MREDataLoader(object):
         data["causes"] = data["causes"].astype(int)
         return data[["SID", "_worker_id", "causes"]]
 
-    def _split_data(self, X, Y, gold_y, metadata):
+    def _split_data(self, X, Y, gold_y, metadata, n_train=-1):
         """
         Reproduces the cross validation logic in
         https://github.com/AlexandraUma/dali-learning-with-disagreement/blob/758b5a6b47bcb6da073550bd55710a57ab5029d3/mre/mre_mtl.py#L470  # noqa
         """
         idxs = list(range(len(gold_y)))
+        # shuffle
+        idxs = np.random.choice(idxs, size=len(idxs), replace=False)
         start_i = 0 + (195 * self.split_num)
         end_i = 195 + (195 * self.split_num)
         val_idxs = idxs[start_i:end_i]
@@ -100,9 +110,12 @@ class MREDataLoader(object):
         train = {'X': [], 'Y': [], "gold_y": [], "metadata": []}
         val = {'X': [], 'Y': [], "gold_y": [], "metadata": []}
         for i in idxs:
-            split = train
             if i in val_idxs:
                 split = val
+            else:
+                if n_train > -1 and len(train["gold_y"]) > n_train:
+                    continue
+                split = train
             split['X'].append(X[i])
             split['Y'].append(Y[i])
             split["gold_y"].append(gold_y[i])

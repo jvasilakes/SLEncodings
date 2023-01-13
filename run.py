@@ -3,12 +3,14 @@ import json
 import yaml
 import random
 import argparse
+import warnings
 from glob import glob
 
 import torch
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 
 from src import data, aggregators, models
 from sle import collate, SLBeta, SLDirichlet
@@ -40,7 +42,7 @@ def parse_args():
     parser.add_argument("--label-type", type=str, default="discrete",
                         choices=["discrete", "sle"])
     parser.add_argument("--label-aggregation", type=str, default="none",
-                        choices=["vote", "soft", "fuse", "none"])
+                        choices=["gold", "vote", "soft", "fuse", "none"])
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--batch-size", type=int, default=5)
@@ -87,11 +89,11 @@ def main(args):
         if args.split_indices_dir is not None:
             train_idxs, val_idxs, test_idxs = load_indices(args.split_indices_dir)  # noqa
         dataset = data.load(args.dataset_name, *args.datadirs,
-                                   n_train=args.n_train,
-                                   train_idxs=train_idxs,
-                                   val_idxs=val_idxs,
-                                   test_idxs=test_idxs,
-                                   random_seed=args.random_seed)
+                            n_train=args.n_train,
+                            train_idxs=train_idxs,
+                            val_idxs=val_idxs,
+                            test_idxs=test_idxs,
+                            random_seed=args.random_seed)
         # (Optionally) encode and aggregate the labels.
         trainset = aggregator(**dataset.train)
         valset = aggregator(**dataset.val)
@@ -120,21 +122,25 @@ def main(args):
             trainset, batch_size=args.batch_size, shuffle=True,
             collate_fn=collate_fn)
     val_loader = torch.utils.data.DataLoader(
-            valset, batch_size=100, shuffle=False,
+            valset, batch_size=args.batch_size, shuffle=False,
             collate_fn=collate_fn)
 
     if args.run_test is True:
-        if args.datadirs is not None:
-            testset = aggregator(**dataset.test)
-            if args.data_pickle_dir is not None:
-                test_path = os.path.join(args.data_pickle_dir, "test.pkl")
-                testset.save(test_path)
+        if dataset.test is None:
+            warnings.warn("No test set found.")
+            test_loader = None
         else:
-            test_path = os.path.join(args.data_pickle_dir, "test.pkl")
-            testset = aggregator.load(test_path)
-        test_loader = torch.utils.data.DataLoader(
-                testset, batch_size=args.batch_size, shuffle=False,
-                collate_fn=collate_fn)
+            if args.datadirs is not None:
+                testset = aggregator(**dataset.test)
+                if args.data_pickle_dir is not None:
+                    test_path = os.path.join(args.data_pickle_dir, "test.pkl")
+                    testset.save(test_path)
+            else:
+                test_path = os.path.join(args.data_pickle_dir, "test.pkl")
+                testset = aggregator.load(test_path)
+            test_loader = torch.utils.data.DataLoader(
+                    testset, batch_size=args.batch_size, shuffle=False,
+                    collate_fn=collate_fn)
 
     if run_train is True:
         os.makedirs(args.outdir, exist_ok=False)
@@ -163,12 +169,15 @@ def main(args):
     optimizer = opt_cls(model.parameters(), lr=args.lr, **opt_kwargs)
 
     lr_scheduler = None
-    sch_cls, sch_kwargs = model.configure_lr_scheduler()
+    sch_cls, sch_kwargs, sch_update_freq = model.configure_lr_scheduler(
+        len(train_loader), args.epochs)
+    # When to update the lr scheduler
+    assert sch_update_freq in [None, "epoch", "batch"]
     if sch_cls is not None:
         lr_scheduler = sch_cls(optimizer, **sch_kwargs)
 
     print("Optimizer: ", optimizer)
-    print("LR Scheduler: ", lr_scheduler.milestones, lr_scheduler.gamma)
+    print("LR Scheduler: ", lr_scheduler)
     print("# Params: ", get_param_count(model))
 
     save_cmdline_args(args, args.outdir)
@@ -181,27 +190,29 @@ def main(args):
     if run_train is True:
         train_losses = {}
         val_losses = {}
-        # best_val_loss = torch.inf
-        best_val_acc = 0.0
+        best_val_loss = torch.inf
         set_seed(args.random_seed)
         for epoch in range(args.epochs):
+            train_lr_sched = None
+            if sch_update_freq == "batch":
+                train_lr_sched = lr_scheduler
             train_acc, train_loss = train(
-                epoch, model, train_loader, optimizer)
+                epoch, model, train_loader, optimizer,
+                lr_scheduler=train_lr_sched)
             train_losses[epoch] = train_loss
-            if lr_scheduler is not None:
+            if lr_scheduler is not None and sch_update_freq == "epoch":
                 lr_scheduler.step()
 
             if (epoch+1) % args.val_freq == 0:
-                val_acc, val_loss = validate(epoch, model, val_loader)
-                val_losses[epoch] = val_loss
-                print(f"(Val {epoch}) Accuracy: {val_acc:.4f}, Loss: {val_loss:.4f}")  # noqa
-                # if val_loss < best_val_loss:
-                #     print(f"Val loss improved {best_val_loss:.4f} -> {val_loss:.4f}")  # noqa
-                #     best_val_loss = val_loss
-                if val_acc > best_val_acc:
-                    print("Saving new best model.")
-                    print(f"Val accuracy improved {best_val_acc:.4f} -> {val_acc:.4f}")  # noqa
-                    best_val_acc = val_acc
+                metrics = validate(epoch, model, val_loader)
+                val_losses[epoch] = metrics["loss"]
+                val_str = f"(Val {epoch})"
+                for (key, val) in metrics.items():
+                    val_str += f" {key}: {val:.4f}"
+                print(val_str)
+                if metrics["loss"] < best_val_loss:
+                    print(f"Val loss improved {best_val_loss:.4f} -> {metrics['loss']:.4f}")  # noqa
+                    best_val_loss = metrics["loss"]
                     save_model(model, epoch=epoch, outdir=model_ckpt_dir)
                     save_model_outputs(model, val_loader, epoch=epoch,
                                        outdir=model_outputs_dir, split="val")
@@ -218,13 +229,16 @@ def main(args):
         print("Loading best performing model on validation set...")
         epoch = -1
         model = load_model(model_ckpt_dir, epoch=epoch)
-        test_acc, test_loss = validate(epoch, model, test_loader)
-        print(f"(Test) Accuracy: {test_acc:.4f}, Loss: {test_loss:.4f}")
+        metrics = validate(epoch, model, test_loader)
+        test_str = f"(Val {epoch})"
+        for (key, val) in metrics.items():
+            test_str += f" {key}: {val:.4f}"
+        print(test_str)
         save_model_outputs(model, test_loader, epoch=epoch,
                            outdir=model_outputs_dir, split="test")
 
 
-def train(epoch, model, dataloader, optimizer):
+def train(epoch, model, dataloader, optimizer, lr_scheduler=None):
     model.train()
     losses = []
     correct_preds = []
@@ -247,6 +261,10 @@ def train(epoch, model, dataloader, optimizer):
         golds = torch.as_tensor([gold.argmax() for gold in batch["gold_y"]])
         correct_preds.extend(preds == golds)
 
+        # lr_scheduler is not None if sch_update_freq == "batch"
+        if lr_scheduler is not None:
+            lr_scheduler.step()
+
         if n % 10 == 0:
             avg_loss = np.mean(losses)
             acc = sum(correct_preds) / len(correct_preds)
@@ -261,19 +279,27 @@ def train(epoch, model, dataloader, optimizer):
 def validate(epoch, model, dataloader):
     model.eval()
     losses = []
-    correct_preds = []
-
+    all_preds = []
+    all_golds = []
     for (n, batch) in enumerate(dataloader):
         batch = send_to_device(batch, DEVICE)
         output = model(batch)
         loss = model.compute_loss(output, batch)
         losses.append(loss.item())
-        preds = model.predict(output).detach().cpu()
-        golds = torch.as_tensor([gold.argmax() for gold in batch["gold_y"]])
-        correct_preds.extend(preds == golds)
+        preds = model.predict(output).detach().cpu().tolist()
+        all_preds.extend(preds)
+        golds = [gold.argmax().item() for gold in batch["gold_y"]]
+        all_golds.extend(golds)
 
-    accuracy = sum(correct_preds) / len(correct_preds)
-    return accuracy, np.mean(losses)
+    p, r, f, _ = precision_recall_fscore_support(all_golds, all_preds,
+                                                 average="macro")
+    accuracy = accuracy_score(all_golds, all_preds)
+    metrics = {"accuracy": accuracy,
+               "precision": p,
+               "recall": r,
+               "F1": f,
+               "loss": np.mean(losses)}
+    return metrics
 
 
 def save_cmdline_args(args, outdir):
@@ -285,6 +311,7 @@ def save_cmdline_args(args, outdir):
 def get_data_aggregator(label_type, label_aggregation):
     lookup = {
             ("discrete", None): aggregators.NonAggregatedDataset,
+            ("discrete", "gold"): aggregators.GoldStandardDataset,
             ("discrete", "vote"): aggregators.VotingAggregatedDataset,
             ("discrete", "soft"): aggregators.SoftVotingAggregatedDataset,
             ("sle", None): aggregators.NonAggregatedSLDataset,

@@ -1,5 +1,6 @@
 import torch.nn as nn
 import torch.optim as optim
+from transformers import BertModel
 
 from .resnet import ResBlock
 
@@ -75,10 +76,49 @@ class ResNetEncoder(nn.Module):
             "weight_decay": 0.0001}
         return (opt_cls, opt_kwargs)
 
-    def configure_lr_scheduler(self):
+    def configure_lr_scheduler(self, num_train_batches, epochs):
+        """
+        num_train_batches and epochs are unused here.
+        """
         sched_cls = optim.lr_scheduler.MultiStepLR
         sched_kwargs = {
             "milestones": [50, 55],
             "gamma": 0.1
         }
-        return (sched_cls, sched_kwargs)
+        update_freq = "epoch"
+        return (sched_cls, sched_kwargs, update_freq)
+
+
+@register_encoder("mre")
+class BERTEncoder(nn.Module):
+
+    def __init__(self, bert_name_or_path="bert-base-uncased"):
+        super().__init__()
+        self.bert_name_or_path = bert_name_or_path
+        self.bert = BertModel.from_pretrained(self.bert_name_or_path)
+        self.dropout = nn.Dropout(self.bert.config.hidden_dropout_prob)
+        self.hidden_size = self.bert.config.hidden_size
+
+    def forward(self, batch):
+        x = batch['X']
+        encoded = self.bert(**x).pooler_output
+        dropped = self.dropout(encoded)
+        return dropped
+
+    def configure_optimizer(self):
+        opt_cls = optim.AdamW
+        opt_kwargs = {
+            "eps": 1e-8,
+            "weight_decay": 0.0
+        }
+        return (opt_cls, opt_kwargs)
+
+    def configure_lr_scheduler(self, num_train_batches, epochs):
+        sched_cls = optim.lr_scheduler.LinearLR
+        sched_kwargs = {
+            "start_factor": 1.0,
+            "end_factor": 0.0,
+            "total_iters": num_train_batches * epochs
+        }
+        update_freq = "batch"
+        return (sched_cls, sched_kwargs, update_freq)

@@ -101,6 +101,22 @@ class MultiAnnotatorDataset(Dataset):
             return pickle.load(inF)
 
 
+class GoldStandardDataset(MultiAnnotatorDataset):
+    """
+    Only keep gold standard labels.
+    """
+    def preprocess(self):
+        new_Y = []
+        new_metadata = []
+        for (gold_y, md) in zip(self.gold_y, self.metadata):
+            new_Y.append(gold_y)
+            new_md = dict(md[0])
+            new_md["annotator_id"] = "gold"
+            new_metadata.append(new_md)
+        self.Y = new_Y
+        self.metadata = new_metadata
+
+
 class NonAggregatedDataset(MultiAnnotatorDataset):
     """
     Each annotation is a separate example.
@@ -193,9 +209,6 @@ class NonAggregatedSLDataset(SubjectiveLogicDataset):
             new_Y.extend(ys_enc)
 
             # Duplicate the inputs
-            #tileshape = torch.ones(len(x.shape)+1, dtype=int)
-            #tileshape[0] = len(ys)
-            #xs = torch.as_tensor(np.tile(x, tileshape), dtype=torch.float32)
             for i in range(len(ys)):
                 new_X.append(x)
                 new_metadata.append(md[i])

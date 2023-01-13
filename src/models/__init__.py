@@ -54,10 +54,10 @@ class CombinedModule(nn.Module):
             opt_kwargs = {}
         return opt_cls, opt_kwargs
 
-    def configure_lr_scheduler(self):
+    def configure_lr_scheduler(self, *args):
         # Check for a learning rate scheduler
         if hasattr(self.encoder, "configure_lr_scheduler"):
-            sched_cls, sched_kwargs = self.encoder.configure_lr_scheduler()
+            sched_cls, sched_kwargs, update_freq = self.encoder.configure_lr_scheduler(*args)  # noqa
         else:
-            sched_cls, sched_kwargs = (None, None)
-        return sched_cls, sched_kwargs
+            sched_cls, sched_kwargs, update_freq = (None, None, None)
+        return sched_cls, sched_kwargs, update_freq
